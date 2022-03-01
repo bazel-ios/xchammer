@@ -131,7 +131,7 @@ def _xcode_project_impl(ctx):
             "--bazel",
             ctx.attr.bazel
             if ctx.attr.bazel[0] == "/"
-            else "\$SRCROOT/" + ctx.attr.bazel,
+            else "\\$SRCROOT/" + ctx.attr.bazel,
             "--xcode_project_rule_info",
             xchammer_info_json.path,
             "; ditto " + project_name + " " + ctx.outputs.out.path,
@@ -167,7 +167,7 @@ get_srcroot = "\"$(cat ../../DO_NOT_BUILD_HERE)/\""
 
 def _install_xcode_project_impl(ctx):
     xcodeproj = ctx.attr.xcodeproj.files.to_list()[0]
-    output_proj = "$SRCROOT/" + xcodeproj.basename
+    output_proj = "$SRCROOT/" + (ctx.attr.output_proj_root if ctx.attr.output_proj_root else "") + "/" + xcodeproj.basename
     command = [
         "SRCROOT=" + get_srcroot,
         "ditto " + xcodeproj.path + " " + output_proj,
@@ -177,7 +177,7 @@ def _install_xcode_project_impl(ctx):
         # This is kind of a hack for reference bazel relative to the source
         # directory, as bazel_build_settings.py doesn't sub Xcode build
         # settings.
-        "sed -i '' \"s,\$SRCROOT,$SRCROOT,g\" "
+        "sed -i '' \"s,\\$SRCROOT,$SRCROOT,g\" "
         + output_proj
         + "/XCHammerAssets/bazel_build_settings.py",
         # Ensure the `external` symlink points to output_base/external
@@ -196,7 +196,7 @@ def _install_xcode_project_impl(ctx):
 
 _install_xcode_project = rule(
     implementation=_install_xcode_project_impl,
-    attrs={"xcodeproj": attr.label(mandatory=True)},
+    attrs={"xcodeproj": attr.label(mandatory=True), "output_proj_root": attr.string(default = "")},
     outputs={"out": "%{name}.dummy"},
 )
 
@@ -238,6 +238,8 @@ def xcode_project(**kwargs):
     proj_args["name"] = rule_name + "_impl"
     proj_args["project_config"] = proj_args["project_config"].to_json() if "project_config" in  proj_args else None
 
+    output_proj_root = proj_args.pop("output_proj_root", "")
+
     _xcode_project(**proj_args)
 
     # Note: _xcode_project does the hermetic, reproducible bits
@@ -245,5 +247,6 @@ def xcode_project(**kwargs):
     _install_xcode_project(
         name=rule_name,
         xcodeproj=kwargs["name"],
+        output_proj_root = output_proj_root,
         testonly=proj_args.get("testonly", False),
     )
