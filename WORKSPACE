@@ -14,7 +14,7 @@ load(
     "apple_rules_dependencies",
 )
 
-# TODO: align these with rules_ios
+# FIXME(rules_ios): align these with rules_ios
 git_repository(
     name = "build_bazel_rules_swift",
     remote = "https://github.com/bazelbuild/rules_swift.git",

@@ -85,7 +85,8 @@ def _extract_generated_sources(target, ctx):
     """ Collects all of the generated source files"""
 
     files = []
-    # @thiago - this needs to provide entilements up-front.
+    # FIXME(rules_ios)
+    # this needs to provide entilements up-front.
     # the IDE will require these entitlements
     if ctx.rule.kind == "entitlements_writer":
         files.append(target.files)
@@ -103,6 +104,7 @@ def _extract_generated_sources(target, ctx):
         files.append(depset(target[CcInfo].compilation_context.direct_public_headers))
     if ObjcInfo in target:
         objc = target[ObjcInfo]
+        # FIXME(rules_ios)
         # Needed anymore?
         #files.append(objc.sources)
         files.append(depset(objc.direct_headers))
@@ -134,8 +136,7 @@ def _install_action(ctx, infos, itarget):
             cmd.append("ditto " + info.path + " \"$target_dir\"")
 
     output = ctx.actions.declare_file(itarget.label.name + "_outputs.dummy")
-    cmd.append("touch  " + output.path)
-    cmd.append("echo $0 && echo 'MADE " + output.path + "'")
+    cmd.append("touch " + output.path)
     ctx.actions.run_shell(
         inputs=inputs,
         command="\n".join(cmd),
@@ -173,8 +174,6 @@ def _xcode_build_sources_aspect_impl(itarget, ctx):
                 trans.extend(target[XcodeBuildSourceInfo].values)
                 trans.extend(target[XcodeBuildSourceInfo].trans)
 
-    #print("INFOS", itarget)
-    #print("INFOS", depset(infos + trans).to_list())
     return [
         OutputGroupInfo(
             xcode_project_deps = _install_action(

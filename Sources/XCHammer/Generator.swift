@@ -634,6 +634,7 @@ enum Generator {
             ]
 
 
+        // FIXME(rules_ios)
         // You can set anything you want in an xcconfig conditionally, like
         // swift_version - Debug.xcconfig
         let project = ProjectSpec.Project(

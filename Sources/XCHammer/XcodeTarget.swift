@@ -85,11 +85,6 @@ func includeTarget(_ xcodeTarget: XcodeTarget, pathPredicate: (String) -> Bool) 
     if xcodeTarget.type == "apple_framework_packaging" {
         return true
     }
-    /*
-    if xcodeTarget.label.value.hasSuffix("_swift") ||
-    xcodeTarget.label.value.hasSuffix("_objc") {
-        return false
-    }*/
     if shouldPropagateDeps(forTarget: xcodeTarget) {
         return true
     }
@@ -328,8 +323,6 @@ public class XcodeTarget: Hashable, Equatable {
             ".apple_binary",
             "_test_bundle",
             "_test_binary",
-            //"_objc",
-            //"_swift",
             "middleman",
         ]
 
@@ -380,9 +373,15 @@ public class XcodeTarget: Hashable, Equatable {
         let stubAsset = self.settings.swiftVersion == nil ?  XCHammerAsset.stubImp : XCHammerAsset.stubImpSwift
         let all: [ProjectSpec.TargetSource] = nonArcFiles + (sourceFiles.filter { !$0.path.hasSuffix("h") }.count > 0 ?
             sourceFiles :
-            [ProjectSpec.TargetSource(path: stubAsset.getPath(underProj:
-                    self.genOptions.outputProjectPath), compilerFlags: ["-x objective-c", "-std=gnu99"])]
+            []
         )
+        // FIXME(rules_ios): do we still need the stubs?
+        // let stubAsset = self.settings.swiftVersion == nil ?  XCHammerAsset.stubImp : XCHammerAsset.stubImpSwift
+        // let all: [ProjectSpec.TargetSource] = nonArcFiles + (sourceFiles.filter { !$0.path.hasSuffix("h") }.count > 0 ?
+        //     sourceFiles :
+        //     [ProjectSpec.TargetSource(path: stubAsset.getPath(underProj:
+        //             self.genOptions.outputProjectPath), compilerFlags: ["-x objective-c", "-std=gnu99"])]
+        // )
         let s: Set<ProjectSpec.TargetSource> = Set(all)
         return Array(s)
     }()
@@ -497,7 +496,9 @@ public class XcodeTarget: Hashable, Equatable {
                             specialIndex].joined(separator: Path.separator))
                 if formattedPath.extension == "lproj" {
                     // TODO: Don't hardcode the parents for lproj
-                    return ProjectSpec.TargetSource(path: formattedPath.parent().string, type: .group)
+                    // return ProjectSpec.TargetSource(path: formattedPath.parent().string, type: .group)
+                    // FIXME(rules_ios): for some reason this needs to be set to the same value as others to build a vertical
+                    return ProjectSpec.TargetSource(path: formattedPath.string)
                 } else {
                     return ProjectSpec.TargetSource(path: formattedPath.string)
                 }
@@ -846,6 +847,8 @@ public class XcodeTarget: Hashable, Equatable {
             return "-I " + xchammerIncludeDir
         }
         settings.swiftCopts <>= swiftModuleIncs
+        // FIXME(rules_ios)
+        // Do we still need this?
         /*
         settings.swiftCopts <>= self.ruleEntry.objCModuleMaps.map {
             "-Xcc -fmodule-map-file=" + subBazelMakeVariables(getRelativePath(for: $0,
@@ -984,9 +987,11 @@ public class XcodeTarget: Hashable, Equatable {
     }
 
     lazy var shouldFuseDirectDeps: Bool = {
+        // FIXME(rules_ios)
+        // remove?
         //return self.xcType?.contains("-test") ?? false
         guard let type = self.xcType else { return false }
-        // FIXME: this is used to determine fusing - need to make sure properly
+        // FIXME(rules_ios): this is used to determine fusing - need to make sure properly
         // fuse rules_ios: because of mixed-module output types. e.g.
         // $NAME_swift and $NAME_objc cannot both declare a .swiftmodule output
         // Could test for that, or even test for a tag
@@ -995,13 +1000,14 @@ public class XcodeTarget: Hashable, Equatable {
     }()
 
     lazy var isTopLevelTestTarget: Bool = {
+        // FIXME(rules_ios)
         //return self.xcType?.contains("-test") ?? false
         guard let type = self.xcType else { return false }
         return type.contains("-test")
     }()
 
     lazy var xcDependencies: [ProjectSpec.Dependency] = {
-        /* FIXME: this needs better logic added to it
+        /* FIXME(rules_ios): this needs better logic added to it
         guard self.frameworkImports.count > 0 else {
             return []
         }*/
@@ -1021,7 +1027,7 @@ public class XcodeTarget: Hashable, Equatable {
             if target.extractProductType()  != nil {
                 return nil
             }
-            // FIXME: this should be an attribute in bazel build graph and or
+            // FIXME(rules_ios): this should be an attribute in bazel build graph and or
             // convention to hide a target in Xcode, or align with fusing
             // predicate
             if depName.hasSuffix("linkopts")  {
@@ -1037,6 +1043,7 @@ public class XcodeTarget: Hashable, Equatable {
                 return nil
             }
 
+            // FIXME(rules_ios) bring this check back?
             //if depName.hasSuffix(".apple_binary")  {
             if false {
                 let unwrappedDeps = target.dependencies
@@ -1280,11 +1287,15 @@ public class XcodeTarget: Hashable, Equatable {
             "macos_command_line_application": ProductType.Tool,
             "macos_extension": ProductType.AppExtension,
             "objc_binary": ProductType.Application,
+            // FIXME(rules_ios)
+            // conditionally do this?
             //"objc_library": ProductType.StaticLibrary,
             "objc_bundle_library": ProductType.Bundle, // TODO: Remove deprecated rule
             "apple_resource_bundle": ProductType.Bundle,
             "objc_framework": ProductType.Framework,
             "apple_static_framework_import": ProductType.Framework,
+            // FIXME(rules_ios)
+            // conditionally do this?
             //"swift_library": ProductType.StaticLibrary,
             "swift_c_module": ProductType.StaticLibrary,
             "tvos_application": ProductType.Application,
@@ -1366,7 +1377,6 @@ public class XcodeTarget: Hashable, Equatable {
             let fusableDeps = self.unfilteredDependencies
                 .filter { flattened.contains($0) && includeTarget($0, pathPredicate:
                         pathsPredicate) }
-            //print("FusbableDeps", fusableDeps.map { $0.label })
             xcodeBuildableTargetSettings = self.settings
                             <> fusableDeps.foldMap { $0.settings }
             // Use settings, sources, and deps from the fusable deps
@@ -1462,17 +1472,11 @@ public class XcodeTarget: Hashable, Equatable {
         // 1) High level "Fusing" of a target from multiple targets
         // 2) A simple conversion of the target: taking it "as is"
         if shouldFlatten(xcodeTarget: xcodeTarget) {
-            /*
-            print("UFD", xcodeTarget.label, xcodeTarget.unfilteredDependencies
-                  .filter { flattened.contains($0) }
-                  .map { $0.label.value }.debugDescription)
-            */
             // Determine deps to fuse into the rule.
             let fusableDeps = xcodeTarget.unfilteredDependencies
                 .filter { flattened.contains($0) && includeTarget($0, pathPredicate:
                         pathsPredicate) }
 
-            //print("FD", xcodeTarget.label, fusableDeps.map { $0.label.value }.debugDescription)
             // Use settings, sources, and deps from the fusable deps
             sources = fusableDeps.flatMap { $0.xcSources }
             settings = xcodeTarget.settings
@@ -1526,10 +1530,6 @@ public class XcodeTarget: Hashable, Equatable {
             }
         }(xcodeTarget)
 
-       // print("LD", linkedDeps, "D", deps)
-        let d = Array(Set(deps))
-            .sorted(by:{ $0.reference  < $1.reference })
-
         return ProjectSpec.Target(
             name: xcodeTarget.xcTargetName,
             type: PBXProductType(rawValue: productType.rawValue)!,
@@ -1537,8 +1537,9 @@ public class XcodeTarget: Hashable, Equatable {
             settings: makeXcodeGenSettings(from: getComposedSettings()),
             configFiles: getXCConfigFiles(for: xcodeTarget),
             sources: sources,
-            dependencies:  d,
-            //dependencies:  
+            dependencies: Array(Set(deps)).sorted(by:{ $0.reference  < $1.reference }),
+            // FIXME(rules_ios)
+            // linkedDeps still necessary?
             //Array(Set(deps + linkedDeps))
             //     .sorted(by:{ $0.reference  < $1.reference }),
             preBuildScripts: prebuildScripts,
