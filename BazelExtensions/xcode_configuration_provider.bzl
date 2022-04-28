@@ -74,7 +74,7 @@ XcodeBuildSourceInfo = provider(
         "values": """The values of source files
 """,
 
-        "trans": """The trans values of source files
+        "transitive": """The transitive values of source files
 """
     }
 )
@@ -104,19 +104,18 @@ def _extract_generated_sources(target, ctx):
         files.append(depset(target[CcInfo].compilation_context.direct_public_headers))
     if ObjcInfo in target:
         objc = target[ObjcInfo]
-        # FIXME(rules_ios)
-        # Needed anymore?
-        #files.append(objc.sources)
+        # FIXME(rules_ios) - add generated sources
+        # files.append(objc.sources)
         files.append(depset(objc.direct_headers))
     trans_files = depset(transitive = files)
-    return [f for f in trans_files.to_list()  if not f.is_source]
+    return [f for f in trans_files.to_list() if not f.is_source and not f.path.endswith("-Swift.h")]
 
 get_srcroot = "\"$(cat ../../DO_NOT_BUILD_HERE)/\""
 non_hermetic_execution_requirements = { "no-cache": "1", "no-remote": "1", "local": "1", "no-sandbox": "1" }
 
 def _install_action(ctx, infos, itarget):
     inputs = []
-    cmd = ["set -ex"]
+    cmd = []
     cmd.append("SRCROOT=" + get_srcroot)
     for info in infos:
         parts = info.path.split("/bin/")
@@ -154,35 +153,36 @@ def _xcode_build_sources_aspect_impl(itarget, ctx):
 
     # Note: we need to collect the transitive files seperately from our own
     infos = []
-    trans = []
+    transitive = []
     infos.extend(_extract_generated_sources(itarget, ctx))
     if XcodeBuildSourceInfo in itarget:
-       trans.extend(itarget[XcodeBuildSourceInfo].values)
-       trans.extend(itarget[XcodeBuildSourceInfo].trans)
+       transitive.append(itarget[XcodeBuildSourceInfo].values)
+       transitive.extend(itarget[XcodeBuildSourceInfo].transitive)
 
     if hasattr(ctx.rule.attr, "deps"):
         for target in ctx.rule.attr.deps:
             infos.extend(_extract_generated_sources(target, ctx))
             if XcodeBuildSourceInfo in target:
-                trans.extend(target[XcodeBuildSourceInfo].values)
-                trans.extend(target[XcodeBuildSourceInfo].trans)
+                transitive.append(target[XcodeBuildSourceInfo].values)
+                transitive.extend(target[XcodeBuildSourceInfo].transitive)
 
     if hasattr(ctx.rule.attr, "transitive_deps"):
         for target in ctx.rule.attr.transitive_deps:
             infos.extend(_extract_generated_sources(target, ctx))
             if XcodeBuildSourceInfo in target:
-                trans.extend(target[XcodeBuildSourceInfo].values)
-                trans.extend(target[XcodeBuildSourceInfo].trans)
+                transitive.append(target[XcodeBuildSourceInfo].values)
+                transitive.extend(target[XcodeBuildSourceInfo].transitive)
 
+    compacted_transitive_files = depset(transitive=transitive).to_list()
     return [
         OutputGroupInfo(
             xcode_project_deps = _install_action(
                 ctx,
-                depset(infos + trans).to_list(),
+                depset(direct=infos, transitive=transitive).to_list(),
                 itarget,
             ),
         ),
-        XcodeBuildSourceInfo(values = infos, trans=trans),
+        XcodeBuildSourceInfo(values = depset(infos), transitive=[depset(compacted_transitive_files)]),
     ]
 
 
