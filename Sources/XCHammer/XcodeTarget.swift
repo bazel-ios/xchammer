@@ -71,6 +71,31 @@ func isBundle(_ ruleType: String) -> Bool {
     return ruleType == "objc_bundle" || ruleType == "apple_bundle_import"
 }
 
+func getDirectImplSources(_ xcodeTarget: XcodeTarget) -> [String] {
+    let impls = (xcodeTarget.sourceFiles + xcodeTarget.nonARCSourceFiles)
+        .map { $0.subPath }
+        .filter { !$0.hasSuffix(".modulemap") && !$0.hasSuffix(".hmap") }
+    let paths: [Path] = xcodeTarget.pathsForAttrs(attrs:
+        [.launch_storyboard, .supporting_files])
+    return impls + paths.map { $0.string }
+}
+
+// Returns the ImplSources for an Xcode target - after fusing if necessary
+func getImplSources(_ xcodeTarget: XcodeTarget, pathPredicate: (String) -> Bool) -> [String] {
+    let implSrcs: [String]
+    if xcodeTarget.shouldFuseDirectDeps {
+        let targetMap = xcodeTarget.targetMap
+        let flattened = Set(flattenedInner(targetMap: targetMap))
+        let fusableDeps = xcodeTarget.unfilteredDependencies
+                .filter { flattened.contains($0) && includeTarget($0, pathPredicate:
+                        pathPredicate) }
+        implSrcs = fusableDeps.flatMap { getDirectImplSources($0) }
+    } else {
+        implSrcs = getDirectImplSources(xcodeTarget)
+    }
+    return implSrcs
+}
+
 func includeTarget(_ xcodeTarget: XcodeTarget, pathPredicate: (String) -> Bool) -> Bool {
     guard let buildFilePath = xcodeTarget.buildFilePath else {
         return false
@@ -82,9 +107,17 @@ func includeTarget(_ xcodeTarget: XcodeTarget, pathPredicate: (String) -> Bool) 
     if xcodeTarget.type == "swift_runtime_linkopts" {
         return false
     }
+
+    let implSrcs = getImplSources(xcodeTarget, pathPredicate: pathPredicate)
     if xcodeTarget.type == "apple_framework_packaging" {
-        return true
+        // TODO(rules_ios) verify if we need this special casing here anymore
+        return implSrcs.count == 0 ? false : true
     }
+
+    if implSrcs.count == 0 {
+        return false
+    }
+
     if shouldPropagateDeps(forTarget: xcodeTarget) {
         return true
     }
@@ -93,11 +126,11 @@ func includeTarget(_ xcodeTarget: XcodeTarget, pathPredicate: (String) -> Bool) 
         return true
     }
 
-    // Skip targets without implementations
-    let impls = (xcodeTarget.sourceFiles + xcodeTarget.nonARCSourceFiles)
+    // Skip targets without compileable sources
+    let directCompileableSources = (xcodeTarget.sourceFiles + xcodeTarget.nonARCSourceFiles)
         .map { $0.subPath }
         .filter { !$0.hasSuffix(".modulemap") && !$0.hasSuffix(".hmap") && !$0.hasSuffix(".h") }
-    if impls.count == 0 {
+    if directCompileableSources.count == 0 {
         return false
     }
 
@@ -305,7 +338,10 @@ public class XcodeTarget: Hashable, Equatable {
         case .sourceFile:
             return resolveExternalPath(for: fileInfo.subPath)
         case .generatedFile:
-            return XCHammerIncludes + resolveExternalPath(for: fileInfo.subPath)
+            return resolveExternalPath(for: fileInfo.subPath)
+            // TODO(rules_ios) - not correctly parsing out sub-paths - consider
+            // removing this and replacing with a transition predicate
+            // return XCHammerIncludes + resolveExternalPath(for: fileInfo.subPath)
         }
     }
 
@@ -375,7 +411,7 @@ public class XcodeTarget: Hashable, Equatable {
             sourceFiles :
             []
         )
-        // FIXME(rules_ios): do we still need the stubs?
+        // FIXME(rules_ios): fix predicate for determining these, if continuing to direct framework deps
         // let stubAsset = self.settings.swiftVersion == nil ?  XCHammerAsset.stubImp : XCHammerAsset.stubImpSwift
         // let all: [ProjectSpec.TargetSource] = nonArcFiles + (sourceFiles.filter { !$0.path.hasSuffix("h") }.count > 0 ?
         //     sourceFiles :
@@ -668,7 +704,7 @@ public class XcodeTarget: Hashable, Equatable {
                 .filter { !$0.hasPrefix("__TIME") }
                 .filter { !$0.hasPrefix("__DATE") }
                 .sorted()
-                .map { "-D\($0)" }
+                .map { "-D\"\($0)\"" }
         }
 
         func extractSwiftVersion() -> String? {
@@ -710,6 +746,11 @@ public class XcodeTarget: Hashable, Equatable {
                              accum.append(opt)
                         } else if opt == "-index-store-path" || (idx > 0 &&
                             coptsArray[idx - 1] == "-index-store-path") {
+                        } else if opt.hasPrefix("-std") {
+                            // TODO(rules_ios) - set for c, cpp e.g. GCC_C_LANGUAGE_STANDARD
+                            // Currently we merge source libs to better
+                            // replicate frameworks in Xcode, however this
+                            // needs to be set at the language level
                             return
                         } else if !opt.isEmpty {
                             accum.append(subBazelMakeVariables(opt, useSRCRoot: true))
@@ -769,18 +810,24 @@ public class XcodeTarget: Hashable, Equatable {
                         let (idx, opt) = itr
                         if opt == "-I." {
                              accum.append(opt)
-                        }  else if opt == "-index-store-path" || (idx > 0 &&
+                        } else if opt == "-index-store-path" || (idx > 0 &&
                             coptsArray[idx - 1] == "-index-store-path") {
                             return
                         } else if !opt.isEmpty {
                             accum.append(subBazelMakeVariables(opt, useSRCRoot: true))
                         }
                     }
-                    settings.swiftCopts <>= processedOpts
+                    settings.swiftCopts <>= ["$(inherited)"] <> processedOpts
                 }
             default:
                 print("TODO: Unimplemented attribute \(attr) \(value)")
             }
+        }
+
+        if self.type == "apple_framework_packaging" {
+            // TODO(rules_ios) consider testing for dynamic here. It should
+            // handle the link_dynamic attribute
+            settings.machoType <>= First("staticlib")
         }
 
         // Swift version
@@ -826,8 +873,13 @@ public class XcodeTarget: Hashable, Equatable {
                 OrderedArray(["$(SRCROOT)/external/"])
 
         // Add copts for module maps
-        settings.copts <>= self.ruleEntry.objCModuleMaps.map {
-            "-fmodule-map-file=" + subBazelMakeVariables(getRelativePath(for: $0,
+        settings.copts <>= self.ruleEntry.objCModuleMaps.compactMap { map in
+            // FIXME(rules_ios) - this is a bug, we pick these up and it causes an issue
+            if map.subPath.hasSuffix(".swift.modulemap") {
+                return nil
+            }
+
+            return "-fmodule-map-file=" + subBazelMakeVariables(getRelativePath(for: map,
                 useTulsiPath: true))
         }
 
@@ -847,9 +899,10 @@ public class XcodeTarget: Hashable, Equatable {
             return "-I " + xchammerIncludeDir
         }
         settings.swiftCopts <>= swiftModuleIncs
-        // FIXME(rules_ios)
-        // Do we still need this?
+
         /*
+        FIXME(rules_ios)
+        Do we still need to disable this? This was a default behavior of objc_library at one point
         settings.swiftCopts <>= self.ruleEntry.objCModuleMaps.map {
             "-Xcc -fmodule-map-file=" + subBazelMakeVariables(getRelativePath(for: $0,
                 useTulsiPath: true))
@@ -987,27 +1040,23 @@ public class XcodeTarget: Hashable, Equatable {
     }
 
     lazy var shouldFuseDirectDeps: Bool = {
-        // FIXME(rules_ios)
-        // remove?
-        //return self.xcType?.contains("-test") ?? false
         guard let type = self.xcType else { return false }
-        // FIXME(rules_ios): this is used to determine fusing - need to make sure properly
+
+        // TODO(rules_ios): this is used to determine fusing - need to make sure properly
         // fuse rules_ios: because of mixed-module output types. e.g.
         // $NAME_swift and $NAME_objc cannot both declare a .swiftmodule output
         // Could test for that, or even test for a tag
-        return type.contains("-test") || type.contains("framework") ||
-        type.contains("application")
+        return type.contains("-test") ||
+            type.contains("framework") ||
+            type.contains("application")
     }()
 
     lazy var isTopLevelTestTarget: Bool = {
-        // FIXME(rules_ios)
-        //return self.xcType?.contains("-test") ?? false
-        guard let type = self.xcType else { return false }
-        return type.contains("-test")
+        return self.xcType?.contains("-test") ?? false
     }()
 
     lazy var xcDependencies: [ProjectSpec.Dependency] = {
-        /* FIXME(rules_ios): this needs better logic added to it
+        /* TODO(rules_ios): this needs better logic added to it
         guard self.frameworkImports.count > 0 else {
             return []
         }*/
@@ -1027,7 +1076,8 @@ public class XcodeTarget: Hashable, Equatable {
             if target.extractProductType()  != nil {
                 return nil
             }
-            // FIXME(rules_ios): this should be an attribute in bazel build graph and or
+
+            // TODO(rules_ios): this should be an attribute in bazel build graph and or
             // convention to hide a target in Xcode, or align with fusing
             // predicate
             if depName.hasSuffix("linkopts")  {
@@ -1258,7 +1308,10 @@ public class XcodeTarget: Hashable, Equatable {
     func extractModuleMap() -> String? {
         return (self.sourceFiles + self.nonARCSourceFiles)
             .first(where: { $0.subPath.hasSuffix(".modulemap") })
-            .map(getXCSourceRootAbsolutePath)
+            .map { $0.subPath }
+            // TODO: rules_ios: these paths aren't correctly resolved, consider
+            // removing this longer term
+            //.map(getXCSourceRootAbsolutePath)
     }
 
     func extractHeaderMap() -> String? {
@@ -1442,13 +1495,8 @@ public class XcodeTarget: Hashable, Equatable {
               let productType = xcodeTarget.extractProductType() else {
             return nil
         }
-        //TODO: (jerry) move this into `includedTargets`
-        let flattened = Set(flattenedInner(targetMap: targetMap))
-        /*
-        guard flattened.contains(xcodeTarget) == false, xcodeTarget.type == "apple_framework_packaging" else {
-            return nil
-        }*/
 
+        let flattened = Set(flattenedInner(targetMap: targetMap))
         let pathsPredicate = makePathFiltersPredicate(genOptions.pathsSet)
         guard includeTarget(xcodeTarget, pathPredicate: pathsPredicate) == true
     else {
@@ -1578,10 +1626,15 @@ func shouldFlatten(xcodeTarget: XcodeTarget) -> Bool {
 
 private func makeScripts(for xcodeTarget: XcodeTarget, genOptions: XCHammerGenerateOptions, targetMap: XcodeTargetMap) -> ([ProjectSpec.BuildScript], [ProjectSpec.BuildScript]) {
     func getProcessScript() -> ProjectSpec.BuildScript {
-        // Use whatever XCHammer this project was built with
         let xchammerBin = Generator.getXCHammerBinPath(genOptions: genOptions)
         let processContent = "\(xchammerBin) process_ipa"
         return  ProjectSpec.BuildScript(path: nil, script: processContent, name: "Process IPA")
+    }
+
+    func getInstallVFSScript() -> ProjectSpec.BuildScript {
+        let xchammerBin = Generator.getXCHammerBinPath(genOptions: genOptions)
+        let processContent = "set -e \n \(xchammerBin) install_vfs"
+        return  ProjectSpec.BuildScript(path: nil, script: processContent, name: "Install VFS")
     }
 
     func getCodeSignerScript() -> ProjectSpec.BuildScript {
@@ -1589,20 +1642,24 @@ private func makeScripts(for xcodeTarget: XcodeTarget, genOptions: XCHammerGener
         return ProjectSpec.BuildScript(path: nil, script: codeSignerContent, name: "Codesign")
     }
 
-    let basePostScripts: [ProjectSpec.BuildScript]
-    let basePreScripts: [ProjectSpec.BuildScript] = []
+    let basePostScripts: [ProjectSpec.BuildScript] = []
+    let postScripts: [ProjectSpec.BuildScript]
+
+    // TODO(rules_ios) make conditional only - probably based on the rule type
+    let basePreScripts: [ProjectSpec.BuildScript] = [getInstallVFSScript()]
+
     if xcodeTarget.needsRecursiveExtraction,
         xcodeTarget.mobileProvisionProfileFile != nil,
         xcodeTarget.extractCodeSignEntitlementsFile(genOptions: genOptions) != nil {
-        basePostScripts = xcodeTarget.type.contains("application") ||
+        postScripts = xcodeTarget.type.contains("application") ||
         xcodeTarget.type == "apple_ui_test" ||
         xcodeTarget.type == "ios_ui_test"
             ? [getProcessScript(), getCodeSignerScript()] : [getCodeSignerScript()]
     } else {
-        basePostScripts = xcodeTarget.type.contains("application") ? [getProcessScript()] : []
+        postScripts = xcodeTarget.type.contains("application") ? [getProcessScript()] : []
     }
 
-    return (basePreScripts, basePostScripts)
+    return (basePreScripts, basePostScripts + postScripts)
 }
 
 
