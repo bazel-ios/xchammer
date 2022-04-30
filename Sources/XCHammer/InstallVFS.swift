@@ -59,11 +59,13 @@ func doInstall(targetBuildDir: Path, frameworkName: String, compilerFlags: Strin
         return
     }
 
-    // Note: This assertion works for rules_ios - see other comment in
-    // XcodeTarget.swift relating to it.
+    // Note: This could be asserted works for rules_ios - see other comment in
+    // XcodeTarget.swift relating to it. This breaks for .apps right now and
+    // hits other problems
     guard let fwRoot = findRoot(name: "\(frameworkName).framework", roots:
                                 frameworks.contents ?? []) else {
-        fatalError("Can't find framework \(frameworkName)")
+        print("warning: Can't find framework \(frameworkName)")
+        return
     }
 
     // Resolve subset of roots relative to the VFS
