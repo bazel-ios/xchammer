@@ -263,6 +263,29 @@ struct ProcessIpaCommand: CommandProtocol {
     }
 }
 
+struct InstallVFSCommand: CommandProtocol {
+    let verb = "install_vfs"
+    let function = "Install VFS for xcode mode"
+
+    typealias Options = NoOptions<CommandError>
+
+    func run(_: Options) -> Result<(), CommandError> {
+        guard let targetBuildDir = ProcessInfo.processInfo.environment["TARGET_BUILD_DIR"] else {
+            return .failure(.basic("$TARGET_BUILD_DIR not found in the env"))
+        }
+        let otherCFlags = ProcessInfo.processInfo.environment["OTHER_CFLAGS"] ?? " "
+        let otherSwiftFlags = ProcessInfo.processInfo.environment["OTHER_SWIFT_FLAGS"]  ?? " "
+        guard let frameworkName =
+        ProcessInfo.processInfo.environment["PRODUCT_NAME"] else {
+            return .failure(.basic("$PRODUCT_NAME not found in the env"))
+        }
+
+        return installVFS(targetBuildDir: Path(targetBuildDir),
+                          frameworkName:frameworkName, compilerFlags:
+                           otherCFlags + " " + otherSwiftFlags)
+    }
+}
+
 struct VersionCommand: CommandProtocol {
     let verb = "version"
     let function = "Print the current version"
@@ -291,6 +314,7 @@ func main() {
     commands.register(GenerateCommand())
     commands.register(GenerateCommandV2())
     commands.register(ProcessIpaCommand())
+    commands.register(InstallVFSCommand())
     commands.register(InstallXcodeBuildSystemCommand())
     commands.register(VersionCommand())
     commands.register(HelpCommand(registry: commands))
