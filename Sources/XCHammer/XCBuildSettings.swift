@@ -172,6 +172,7 @@ enum XCSettingCodingKey: String, CodingKey {
     case swiftCopts = "OTHER_SWIFT_FLAGS"
 
     case pythonPath = "PYTHONPATH"
+    case machoType = "MACH_O_TYPE"
 
     // Hammer Rules
     case codeSignEntitlementsFile = "HAMMER_ENTITLEMENTS_FILE"
@@ -227,6 +228,7 @@ struct XCBuildSettings: Encodable {
     var swiftCopts: [String] = []
     var testTargetName: First<String>?
     var pythonPath: First<String>?
+    var machoType: First<String>?
     var sdkRoot: First<String>?
     var targetedDeviceFamily: OrderedArray<String> = OrderedArray.empty
     var isBazel: First<String> = First("NO")
@@ -292,6 +294,7 @@ struct XCBuildSettings: Encodable {
         try useHeaderMap.map { try container.encode($0.v, forKey: .useHeaderMap) }
         try testTargetName.map { try container.encode($0.v, forKey: .testTargetName) }
         try pythonPath.map { try container.encode($0.v, forKey: .pythonPath) }
+        try machoType.map { try container.encode($0.v, forKey: .machoType) }
         try sdkRoot.map { try container.encode($0.v, forKey: .sdkRoot) }
         try container.encode(targetedDeviceFamily.joined(separator: ","), forKey: .targetedDeviceFamily)
         try swiftVersion.map { try container.encode($0.v, forKey: .swiftVersion) }
@@ -350,6 +353,7 @@ extension XCBuildSettings: Monoid {
             swiftCopts: lhs.swiftCopts <> rhs.swiftCopts,
             testTargetName: lhs.testTargetName <> rhs.testTargetName,
             pythonPath: lhs.pythonPath <> rhs.pythonPath,
+            machoType: lhs.machoType <> rhs.machoType,
             sdkRoot: lhs.sdkRoot <> rhs.sdkRoot,
             targetedDeviceFamily: lhs.targetedDeviceFamily <>
                 rhs.targetedDeviceFamily,
