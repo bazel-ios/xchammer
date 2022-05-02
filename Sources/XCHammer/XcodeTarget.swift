@@ -260,7 +260,7 @@ public class XcodeTarget: Hashable, Equatable {
             "apple_ui_test",
             "ios_ui_test"
         ]
-        let value = self.isTopLevelTestTarget || (
+        let value = self.shouldFuseDirectDeps || (
             type.map { needsRecursiveTypes.contains($0) } ?? false
         )
         return value
@@ -532,6 +532,8 @@ public class XcodeTarget: Hashable, Equatable {
             case .AppExtension, .XPCService, .Watch1App, .Watch2App, .Watch1Extension, .Watch2Extension, .TVAppExtension, .IMessageExtension:
             return xcTargetName + ".appex"
             case .StaticLibrary:
+            return xcTargetName
+            case .Framework:
             return xcTargetName
             default:
             return "$(TARGET_NAME)"
@@ -966,28 +968,36 @@ public class XcodeTarget: Hashable, Equatable {
         case IMessageExtension = "com.apple.product-type.app-extension.messages"
     }
 
+    lazy var shouldFuseDirectDeps: Bool = {
+        guard let type = self.xcType else { return false }
+
+        // TODO(rules_ios): this is used to determine fusing - need to make sure properly
+        // fuse rules_ios: because of mixed-module output types. e.g.
+        // $NAME_swift and $NAME_objc cannot both declare a .swiftmodule output
+        // Could test for that, or even test for a tag
+        return type.contains("-test") ||
+            type.contains("framework") ||
+            type.contains("application")
+    }()
+
     lazy var isTopLevelTestTarget: Bool = {
         return self.xcType?.contains("-test") ?? false
     }()
 
     lazy var xcDependencies: [ProjectSpec.Dependency] = {
+        /* TODO(rules_ios): this needs better logic added to it
         guard self.frameworkImports.count > 0 else {
             return []
-        }
+        }*/
 
         // TODO: Move this to xcLinkableTransitiveDeps
-        let xcodeTargetDeps: [XcodeTarget] = self.dependencies.compactMap {
-            depLabel in
+        let xcodeTargetDeps: [XcodeTarget] = self.dependencies.reduce(into: [XcodeTarget]()) {
+            accum, depLabel in
             let depName = depLabel.value
             guard let target = self.targetMap.xcodeTarget(buildLabel: depLabel, depender: self) else {
-                return nil
+                return
             }
-
-            guard target.frameworkImports.count == 0 else {
-                return nil
-            }
-
-            if depName.hasSuffix(".apple_binary") {
+            if depName.hasSuffix(".apple_binary")  {
                 let unwrappedDeps = target.dependencies
                 for depEntry in unwrappedDeps {
                     // If it's an iOS app, strip out entitlements
@@ -996,12 +1006,15 @@ public class XcodeTarget: Hashable, Equatable {
                     }
 
                     if let foundTarget = self.targetMap.xcodeTarget(buildLabel:
-                            depEntry, depender: self) {
-                        return foundTarget
+                            depEntry, depender: self), foundTarget.extractProductType() != nil {
+                        accum.append(foundTarget)
+                        break
                     }
                 }
             }
-            return target
+            if targetMap.includedTargets.contains(target) {
+               accum.append(target)
+            }
         }
         return xcodeTargetDeps
             .compactMap {
@@ -1223,6 +1236,7 @@ public class XcodeTarget: Hashable, Equatable {
             "ios_application": ProductType.Application,
             "ios_extension": ProductType.AppExtension,
             "ios_framework": ProductType.Framework,
+            "apple_framework_packaging": ProductType.Framework,
             "ios_test": ProductType.UnitTest,
             "macos_application": ProductType.Application,
             "macos_command_line_application": ProductType.Tool,
@@ -1231,6 +1245,8 @@ public class XcodeTarget: Hashable, Equatable {
             "objc_library": ProductType.StaticLibrary,
             "objc_bundle_library": ProductType.Bundle, // TODO: Remove deprecated rule
             "apple_resource_bundle": ProductType.Bundle,
+            "_precompiled_apple_resource_bundle": ProductType.Bundle,
+
             "objc_framework": ProductType.Framework,
             "apple_static_framework_import": ProductType.Framework,
             "swift_library": ProductType.StaticLibrary,
@@ -1307,7 +1323,7 @@ public class XcodeTarget: Hashable, Equatable {
         /// We need to include the sources into the target
         let sources: [ProjectSpec.TargetSource]
         let xcodeBuildableTargetSettings: XCBuildSettings
-        if isTopLevelTestTarget {
+        if shouldFuseDirectDeps {
             let flattened = Set(flattenedInner(targetMap: targetMap))
             // Determine deps to fuse into the rule.
             let pathsPredicate = makePathFiltersPredicate(genOptions.pathsSet)
@@ -1379,12 +1395,8 @@ public class XcodeTarget: Hashable, Equatable {
               let productType = xcodeTarget.extractProductType() else {
             return nil
         }
-        //TODO: (jerry) move this into `includedTargets`
-        let flattened = Set(flattenedInner(targetMap: targetMap))
-        guard flattened.contains(xcodeTarget) == false else {
-            return nil
-        }
 
+        let flattened = Set(flattenedInner(targetMap: targetMap))
         let pathsPredicate = makePathFiltersPredicate(genOptions.pathsSet)
         guard includeTarget(xcodeTarget, pathPredicate: pathsPredicate) == true
     else {
@@ -1419,7 +1431,7 @@ public class XcodeTarget: Hashable, Equatable {
                 <> fusableDeps.foldMap { $0.settings }
             if shouldPropagateDeps(forTarget: xcodeTarget) {
                 deps = fusableDeps
-                    .flatMap { $0.xcLinkableTransitiveDeps } + xcodeTarget.xcExtensionDeps
+                    .flatMap { $0.xcLinkableTransitiveDeps } + xcodeTarget.xcLinkableTransitiveDeps + xcodeTarget.xcExtensionDeps
             } else {
                 deps = []
             }
@@ -1435,9 +1447,16 @@ public class XcodeTarget: Hashable, Equatable {
         }
 
         func getComposedSettings() -> XCBuildSettings {
+            var updatedSettings = settings
+            // Needs to be set here
+            if xcodeTarget.type == "apple_framework_packaging" {
+                // TODO(rules_ios) consider handling link_dynamic 
+                updatedSettings.machoType <>= First("staticlib")
+            }
+
             guard let codeSignEntitlementsFile =
                 xcodeTarget.extractCodeSignEntitlementsFile(genOptions: genOptions) else {
-                return settings
+                return updatedSettings
             }
 
             // Compose entitlements linker flags on, if they are detected by hacky assumptions
@@ -1449,7 +1468,7 @@ public class XcodeTarget: Hashable, Equatable {
                 eSettings.mobileProvisionProfileFile = First(mobileProvisionProfileFile)
                 eSettings.codeSignEntitlementsFile = First(codeSignEntitlementsFile)
             }
-            return settings <> eSettings
+            return updatedSettings <> eSettings
         }
 
         let (prebuildScripts, postbuildScripts) = makeScripts(for: xcodeTarget, genOptions: genOptions, targetMap: targetMap)
