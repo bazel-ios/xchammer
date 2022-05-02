@@ -1049,7 +1049,8 @@ public class XcodeTarget: Hashable, Equatable {
         return xcodeTargetDeps
             .compactMap {
                 xcodeTarget in
-                guard targetMap.includedTargets.contains(xcodeTarget) else {
+                guard targetMap.includedTargets.contains(xcodeTarget),
+                    xcodeTarget.extractProductType() != nil else {
                     return nil
                 }
                 return ProjectSpec.Dependency(type: .target, reference:
