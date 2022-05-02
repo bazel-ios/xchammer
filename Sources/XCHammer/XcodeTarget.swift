@@ -1504,17 +1504,22 @@ public func ==(lhs: XcodeTarget, rhs: XcodeTarget) -> Bool {
 
 /// Return true when flatten flat
 func shouldFlatten(xcodeTarget: XcodeTarget) -> Bool {
-    return xcodeTarget.isTopLevelTestTarget
+    return xcodeTarget.shouldFuseDirectDeps
 }
 
 /// Mark - XcodeGen support
 
 private func makeScripts(for xcodeTarget: XcodeTarget, genOptions: XCHammerGenerateOptions, targetMap: XcodeTargetMap) -> ([ProjectSpec.BuildScript], [ProjectSpec.BuildScript]) {
     func getProcessScript() -> ProjectSpec.BuildScript {
-        // Use whatever XCHammer this project was built with
         let xchammerBin = Generator.getXCHammerBinPath(genOptions: genOptions)
         let processContent = "\(xchammerBin) process_ipa"
         return  ProjectSpec.BuildScript(path: nil, script: processContent, name: "Process IPA")
+    }
+
+    func getInstallVFSScript() -> ProjectSpec.BuildScript {
+        let xchammerBin = Generator.getXCHammerBinPath(genOptions: genOptions)
+        let processContent = "set -e \n \(xchammerBin) install_vfs"
+        return  ProjectSpec.BuildScript(path: nil, script: processContent, name: "Install VFS")
     }
 
     func getCodeSignerScript() -> ProjectSpec.BuildScript {
@@ -1522,20 +1527,24 @@ private func makeScripts(for xcodeTarget: XcodeTarget, genOptions: XCHammerGener
         return ProjectSpec.BuildScript(path: nil, script: codeSignerContent, name: "Codesign")
     }
 
-    let basePostScripts: [ProjectSpec.BuildScript]
-    let basePreScripts: [ProjectSpec.BuildScript] = []
+    let basePostScripts: [ProjectSpec.BuildScript] = []
+    let postScripts: [ProjectSpec.BuildScript]
+
+    // TODO(rules_ios) make conditional only - probably based on the rule type
+    let basePreScripts: [ProjectSpec.BuildScript] = [getInstallVFSScript()]
+
     if xcodeTarget.needsRecursiveExtraction,
         xcodeTarget.mobileProvisionProfileFile != nil,
         xcodeTarget.extractCodeSignEntitlementsFile(genOptions: genOptions) != nil {
-        basePostScripts = xcodeTarget.type.contains("application") ||
+        postScripts = xcodeTarget.type.contains("application") ||
         xcodeTarget.type == "apple_ui_test" ||
         xcodeTarget.type == "ios_ui_test"
             ? [getProcessScript(), getCodeSignerScript()] : [getCodeSignerScript()]
     } else {
-        basePostScripts = xcodeTarget.type.contains("application") ? [getProcessScript()] : []
+        postScripts = xcodeTarget.type.contains("application") ? [getProcessScript()] : []
     }
 
-    return (basePreScripts, basePostScripts)
+    return (basePreScripts, basePostScripts + postScripts)
 }
 
 
