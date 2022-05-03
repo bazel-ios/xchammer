@@ -71,6 +71,31 @@ func isBundle(_ ruleType: String) -> Bool {
     return ruleType == "objc_bundle" || ruleType == "apple_bundle_import"
 }
 
+func getDirectImplSources(_ xcodeTarget: XcodeTarget) -> [String] {
+    let impls = (xcodeTarget.sourceFiles + xcodeTarget.nonARCSourceFiles)
+        .map { $0.subPath }
+        .filter { !$0.hasSuffix(".modulemap") && !$0.hasSuffix(".hmap") }
+    let paths: [Path] = xcodeTarget.pathsForAttrs(attrs:
+        [.launch_storyboard, .supporting_files])
+    return impls + paths.map { $0.string }
+}
+
+// Returns the ImplSources for an Xcode target - after fusing if necessary
+func getImplSources(_ xcodeTarget: XcodeTarget, pathPredicate: (String) -> Bool) -> [String] {
+    let implSrcs: [String]
+    if xcodeTarget.shouldFuseDirectDeps {
+        let targetMap = xcodeTarget.targetMap
+        let flattened = Set(flattenedInner(targetMap: targetMap))
+        let fusableDeps = xcodeTarget.unfilteredDependencies
+                .filter { flattened.contains($0) && includeTarget($0, pathPredicate:
+                        pathPredicate) }
+        implSrcs = fusableDeps.flatMap { getDirectImplSources($0) }
+    } else {
+        implSrcs = getDirectImplSources(xcodeTarget)
+    }
+    return implSrcs
+}
+
 func includeTarget(_ xcodeTarget: XcodeTarget, pathPredicate: (String) -> Bool) -> Bool {
     guard let buildFilePath = xcodeTarget.buildFilePath else {
         return false
@@ -82,6 +107,12 @@ func includeTarget(_ xcodeTarget: XcodeTarget, pathPredicate: (String) -> Bool) 
     if xcodeTarget.type == "swift_runtime_linkopts" {
         return false
     }
+
+    let implSrcs = getImplSources(xcodeTarget, pathPredicate: pathPredicate)
+    if implSrcs.count == 0 {
+        return false
+    }
+
     if shouldPropagateDeps(forTarget: xcodeTarget) {
         return true
     }
@@ -90,11 +121,11 @@ func includeTarget(_ xcodeTarget: XcodeTarget, pathPredicate: (String) -> Bool) 
         return true
     }
 
-    // Skip targets without implementations
-    let impls = (xcodeTarget.sourceFiles + xcodeTarget.nonARCSourceFiles)
+    // Skip targets without compileable sources
+    let directCompileableSources = (xcodeTarget.sourceFiles + xcodeTarget.nonARCSourceFiles)
         .map { $0.subPath }
         .filter { !$0.hasSuffix(".modulemap") && !$0.hasSuffix(".hmap") && !$0.hasSuffix(".h") }
-    if impls.count == 0 {
+    if directCompileableSources.count == 0 {
         return false
     }
 
@@ -302,7 +333,10 @@ public class XcodeTarget: Hashable, Equatable {
         case .sourceFile:
             return resolveExternalPath(for: fileInfo.subPath)
         case .generatedFile:
-            return XCHammerIncludes + resolveExternalPath(for: fileInfo.subPath)
+            return resolveExternalPath(for: fileInfo.subPath)
+            // TODO(rules_ios) - not correctly parsing out sub-paths - consider
+            // removing this and replacing with a transition predicate
+            // return XCHammerIncludes + resolveExternalPath(for: fileInfo.subPath)
         }
     }
 
@@ -320,6 +354,7 @@ public class XcodeTarget: Hashable, Equatable {
             ".apple_binary",
             "_test_bundle",
             "_test_binary",
+            "middleman",
         ]
 
         return self.dependencies
@@ -368,9 +403,9 @@ public class XcodeTarget: Hashable, Equatable {
 
         let stubAsset = self.settings.swiftVersion == nil ?  XCHammerAsset.stubImp : XCHammerAsset.stubImpSwift
         let all: [ProjectSpec.TargetSource] = nonArcFiles + (sourceFiles.filter { !$0.path.hasSuffix("h") }.count > 0 ?
-            sourceFiles :
-            [ProjectSpec.TargetSource(path: stubAsset.getPath(underProj:
-                    self.genOptions.outputProjectPath), compilerFlags: ["-x objective-c", "-std=gnu99"])]
+             sourceFiles :
+             [ProjectSpec.TargetSource(path: stubAsset.getPath(underProj:
+                     self.genOptions.outputProjectPath), compilerFlags: ["-x objective-c", "-std=gnu99"])]
         )
         let s: Set<ProjectSpec.TargetSource> = Set(all)
         return Array(s)
@@ -484,12 +519,7 @@ public class XcodeTarget: Hashable, Equatable {
                 let formattedPath =
                     Path(pathComponents[pathComponents.startIndex ...
                             specialIndex].joined(separator: Path.separator))
-                if formattedPath.extension == "lproj" {
-                    // TODO: Don't hardcode the parents for lproj
-                    return ProjectSpec.TargetSource(path: formattedPath.parent().string, type: .group)
-                } else {
-                    return ProjectSpec.TargetSource(path: formattedPath.string)
-                }
+                return ProjectSpec.TargetSource(path: formattedPath.string)
             } else {
                 return ProjectSpec.TargetSource(path: path.string)
             }
@@ -565,7 +595,7 @@ public class XcodeTarget: Hashable, Equatable {
             guard xcodeTarget.type != "_headermap" else {
                 return Transition.stop
             }
-            return xcodeTarget.needsRecursiveExtraction ? Transition.justOnceMore : Transition.keepGoing
+            return Transition.keepGoing
         }
 
         let deps = self.transitiveTargets(map: self.targetMap, predicate:
@@ -604,7 +634,6 @@ public class XcodeTarget: Hashable, Equatable {
                 // Do not link static libraries that aren't going to exist.
                 // These targets still need to be included in the project.
                 case .StaticLibrary, .DynamicLibrary:
-
                     let compiledSrcs = (xcodeTarget.sourceFiles + xcodeTarget.nonARCSourceFiles)
                         .filter {
                        fileInfo in
@@ -651,7 +680,7 @@ public class XcodeTarget: Hashable, Equatable {
                 .filter { !$0.hasPrefix("__TIME") }
                 .filter { !$0.hasPrefix("__DATE") }
                 .sorted()
-                .map { "-D\($0)" }
+                .map { "-D\"\($0)\"" }
         }
 
         func extractSwiftVersion() -> String? {
@@ -693,6 +722,11 @@ public class XcodeTarget: Hashable, Equatable {
                              accum.append(opt)
                         } else if opt == "-index-store-path" || (idx > 0 &&
                             coptsArray[idx - 1] == "-index-store-path") {
+                        } else if opt.hasPrefix("-std") {
+                            // TODO(rules_ios) - set for c, cpp e.g. GCC_C_LANGUAGE_STANDARD
+                            // Currently we merge source libs to better
+                            // replicate frameworks in Xcode, however this
+                            // needs to be set at the language level
                             return
                         } else if !opt.isEmpty {
                             accum.append(subBazelMakeVariables(opt, useSRCRoot: true))
@@ -752,14 +786,14 @@ public class XcodeTarget: Hashable, Equatable {
                         let (idx, opt) = itr
                         if opt == "-I." {
                              accum.append(opt)
-                        }  else if opt == "-index-store-path" || (idx > 0 &&
+                        } else if opt == "-index-store-path" || (idx > 0 &&
                             coptsArray[idx - 1] == "-index-store-path") {
                             return
                         } else if !opt.isEmpty {
                             accum.append(subBazelMakeVariables(opt, useSRCRoot: true))
                         }
                     }
-                    settings.swiftCopts <>= processedOpts
+                    settings.swiftCopts <>= ["$(inherited)"] <> processedOpts
                 }
             default:
                 print("TODO: Unimplemented attribute \(attr) \(value)")
@@ -809,8 +843,13 @@ public class XcodeTarget: Hashable, Equatable {
                 OrderedArray(["$(SRCROOT)/external/"])
 
         // Add copts for module maps
-        settings.copts <>= self.ruleEntry.objCModuleMaps.map {
-            "-fmodule-map-file=" + subBazelMakeVariables(getRelativePath(for: $0,
+        settings.copts <>= self.ruleEntry.objCModuleMaps.compactMap { map in
+            // FIXME(rules_ios) - this is a bug, we pick these up and it causes an issue
+            if map.subPath.hasSuffix(".swift.modulemap") {
+                return nil
+            }
+
+            return "-fmodule-map-file=" + subBazelMakeVariables(getRelativePath(for: map,
                 useTulsiPath: true))
         }
 
@@ -830,10 +869,14 @@ public class XcodeTarget: Hashable, Equatable {
             return "-I " + xchammerIncludeDir
         }
         settings.swiftCopts <>= swiftModuleIncs
+
+        /*
+        FIXME(rules_ios)
+        Do we still need to disable this? This was a default behavior of objc_library at one point
         settings.swiftCopts <>= self.ruleEntry.objCModuleMaps.map {
             "-Xcc -fmodule-map-file=" + subBazelMakeVariables(getRelativePath(for: $0,
                 useTulsiPath: true))
-        }
+        }*/
 
         if let headerMap =  self.extractHeaderMap() {
             settings.swiftCopts <>= ["-Xcc -iquote -Xcc " + headerMap]
@@ -1006,7 +1049,8 @@ public class XcodeTarget: Hashable, Equatable {
         return xcodeTargetDeps
             .compactMap {
                 xcodeTarget in
-                guard targetMap.includedTargets.contains(xcodeTarget) else {
+                guard targetMap.includedTargets.contains(xcodeTarget),
+                    xcodeTarget.extractProductType() != nil else {
                     return nil
                 }
                 return ProjectSpec.Dependency(type: .target, reference:
@@ -1200,7 +1244,10 @@ public class XcodeTarget: Hashable, Equatable {
     func extractModuleMap() -> String? {
         return (self.sourceFiles + self.nonARCSourceFiles)
             .first(where: { $0.subPath.hasSuffix(".modulemap") })
-            .map(getXCSourceRootAbsolutePath)
+            .map { $0.subPath }
+            // TODO: rules_ios: these paths aren't correctly resolved, consider
+            // removing this longer term
+            //.map(getXCSourceRootAbsolutePath)
     }
 
     func extractHeaderMap() -> String? {
@@ -1213,6 +1260,17 @@ public class XcodeTarget: Hashable, Equatable {
     }
 
     func extractProductType() -> ProductType? {
+        // TODO: add a way to indicate to to the generator to filter these
+        if self.type == "objc_library" && self.label.value.hasSuffix("_objc")  {
+            return nil
+        }
+        if self.type == "swift_library" && self.label.value.hasSuffix("_swift")  {
+            return nil
+        }
+        if self.label.value.hasSuffix("_hmap")  || self.label.value.hasSuffix("_vfs") {
+            return nil
+        }
+
         let BuildTypeToTargetType = [
             "apple_ui_test": ProductType.UIUnitTest, // TODO: Remove deprecated rule
             "ios_ui_test": ProductType.UIUnitTest,
