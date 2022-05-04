@@ -88,7 +88,10 @@ enum Generator {
         let overrides = getRepositoryOverrides(genOptions: genOptions)
         let bazelArgs: [String] = [
             "--aspects @xchammer//:BazelExtensions/xcode_configuration_provider.bzl%pure_xcode_build_sources_aspect",
-            "--output_groups=xcode_project_deps"
+            "--output_groups=xcode_project_deps",
+            // In rules_ios some of the rules are incompatible with Xcode mode,
+            // and need to operate slightly differenly
+            "--features", "xcode.compile_with_xcode"
         ] + overrides + labels.map { $0.value }
 
         // We retry.sh the bazel command so if Xcode updates, the build still works
@@ -135,7 +138,7 @@ enum Generator {
         let generateCommand: [String]
         if let xcodeProjectRuleInfo = genOptions.xcodeProjectRuleInfo {
             generateCommand = [genOptions.bazelPath.string, "build" ] +
-                xcodeProjectRuleInfo.bazelTargets
+                xcodeProjectRuleInfo.bazelTargets + ["--features", "xcode.compile_with_xcode"]
         } else {
             // Use whatever command and XCHammer this project was built with
             generateCommand = CommandLine.arguments.filter { $0 != "--force" }
