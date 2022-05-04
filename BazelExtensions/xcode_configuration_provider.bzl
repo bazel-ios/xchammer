@@ -72,9 +72,25 @@ target_config_aspect = aspect(
 XcodeBuildSourceInfo = provider(
     fields={
         "values": """The values of source files
+""",
+
+        "transitive": """The transitive values of source files
 """
     }
 )
+
+ObjcInfo = apple_common.Objc
+
+def _collect_attr(target, ctx, attr_name, files):
+    if hasattr(ctx.rule.attr, attr_name):
+        attr_value = getattr(ctx.rule.attr, attr_name)
+        if attr_value and DefaultInfo in attr_value:
+            attr_value_files = attr_value[DefaultInfo].files
+            files.append(attr_value_files)
+        elif type(attr_value) == "list":
+            for f in attr_value:
+                if hasattr(f, "files"):
+                     files.append(f.files)
 
 def _extract_generated_sources(target, ctx):
     """ Collects all of the generated source files"""
@@ -82,6 +98,10 @@ def _extract_generated_sources(target, ctx):
     files = []
     if ctx.rule.kind == "entitlements_writer":
         files.append(target.files)
+
+    _collect_attr(target, ctx, 'srcs', files)
+    _collect_attr(target, ctx, 'entitlements', files)
+    _collect_attr(target, ctx, 'infoplists', files)
 
     if SwiftInfo in target:
         include_swift_outputs = ctx.attr.include_swift_outputs == "true"
@@ -91,14 +111,13 @@ def _extract_generated_sources(target, ctx):
         if include_swift_outputs and hasattr(module_info, "transitive_swiftmodules"):
             files.append(module_info.transitive_swiftmodules)
 
-    if hasattr(target, "objc"):
-        objc = target.objc
-        files.append(objc.source)
-        files.append(objc.header)
-        files.append(objc.module_map)
-
+    if CcInfo in target:
+        files.append(depset(target[CcInfo].compilation_context.direct_public_headers))
+    if ObjcInfo in target:
+        objc = target[ObjcInfo]
+        files.append(depset(objc.direct_headers))
     trans_files = depset(transitive = files)
-    return [f for f in trans_files.to_list()  if not f.is_source]
+    return [f for f in trans_files.to_list() if not f.is_source and not f.path.endswith("-Swift.h")]
 
 get_srcroot = "\"$(cat ../../DO_NOT_BUILD_HERE)/\""
 non_hermetic_execution_requirements = { "no-cache": "1", "no-remote": "1", "local": "1", "no-sandbox": "1" }
@@ -143,23 +162,36 @@ def _xcode_build_sources_aspect_impl(itarget, ctx):
 
     # Note: we need to collect the transitive files seperately from our own
     infos = []
-    trans = []
+    transitive = []
     infos.extend(_extract_generated_sources(itarget, ctx))
+    if XcodeBuildSourceInfo in itarget:
+       transitive.append(itarget[XcodeBuildSourceInfo].values)
+       transitive.extend(itarget[XcodeBuildSourceInfo].transitive)
+
     if hasattr(ctx.rule.attr, "deps"):
         for target in ctx.rule.attr.deps:
+            infos.extend(_extract_generated_sources(target, ctx))
             if XcodeBuildSourceInfo in target:
-                infos.extend(_extract_generated_sources(target, ctx))
-                trans.extend(target[XcodeBuildSourceInfo].values)
+                transitive.append(target[XcodeBuildSourceInfo].values)
+                transitive.extend(target[XcodeBuildSourceInfo].transitive)
 
+    if hasattr(ctx.rule.attr, "transitive_deps"):
+        for target in ctx.rule.attr.transitive_deps:
+            infos.extend(_extract_generated_sources(target, ctx))
+            if XcodeBuildSourceInfo in target:
+                transitive.append(target[XcodeBuildSourceInfo].values)
+                transitive.extend(target[XcodeBuildSourceInfo].transitive)
+
+    compacted_transitive_files = depset(transitive=transitive).to_list()
     return [
         OutputGroupInfo(
             xcode_project_deps = _install_action(
                 ctx,
-                depset(infos + trans).to_list(),
+                depset(direct=infos, transitive=transitive).to_list(),
                 itarget,
             ),
         ),
-        XcodeBuildSourceInfo(values = infos),
+        XcodeBuildSourceInfo(values = depset(infos), transitive=[depset(compacted_transitive_files)]),
     ]
 
 
