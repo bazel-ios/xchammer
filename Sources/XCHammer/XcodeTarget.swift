@@ -750,7 +750,7 @@ public class XcodeTarget: Hashable, Equatable {
                 }
             case .enable_modules:
                 settings.enableModules <>= (value as? Bool).map { First($0 ? "YES" : "NO") }
-            case .supporting_files:
+            case .info_plists:
                 settings.infoPlistFile <>= (value as? [[String: AnyObject]]).flatMap { $0.map { dict in
                     if let filePath = dict["path"] as? String,
                         Path(filePath).extension == "plist" {
