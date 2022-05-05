@@ -177,6 +177,7 @@ enum XCSettingCodingKey: String, CodingKey {
     // Hammer Rules
     case codeSignEntitlementsFile = "HAMMER_ENTITLEMENTS_FILE"
     case mobileProvisionProfileFile = "HAMMER_PROFILE_FILE"
+    case frameworkvfsoverlay = "RULES_IOS_VFS_OVERLAY"
     case diagnosticFlags = "HAMMER_DIAGNOSTIC_FLAGS"
     case isBazel = "HAMMER_IS_BAZEL"
     case tulsiWR = "TULSI_WR"
@@ -220,6 +221,7 @@ struct XCBuildSettings: Encodable {
     var codeSigningStyle: First<String>? = First("manual")
     var mobileProvisionProfileFile: First<String>?
     var codeSignEntitlementsFile: First<String>?
+    var frameworkvfsoverlay: First<String>?
     var moduleMapFile: First<String>?
     var moduleName: First<String>?
     // Disable Xcode derived headermaps, be explicit to avoid divergence
@@ -288,6 +290,7 @@ struct XCBuildSettings: Encodable {
         try codeSigningIdentity.map { try container.encode($0.v, forKey: .codeSigningIdentity) }
         try codeSigningStyle.map { try container.encode($0.v, forKey: .codeSigningStyle) }
         try mobileProvisionProfileFile.map { try container.encode($0.v, forKey: .mobileProvisionProfileFile) }
+        try frameworkvfsoverlay.map { try container.encode($0.v, forKey: .frameworkvfsoverlay) }
         try codeSignEntitlementsFile.map { try container.encode($0.v, forKey: .codeSignEntitlementsFile) }
         try moduleMapFile.map { try container.encode($0.v, forKey: .moduleMapFile) }
         try moduleName.map { try container.encode($0.v, forKey: .moduleName) }
@@ -346,6 +349,7 @@ extension XCBuildSettings: Monoid {
             codeSigningStyle: lhs.codeSigningStyle <> rhs.codeSigningStyle,
             mobileProvisionProfileFile: lhs.mobileProvisionProfileFile <> rhs.mobileProvisionProfileFile,
             codeSignEntitlementsFile: lhs.codeSignEntitlementsFile <> rhs.codeSignEntitlementsFile,
+            frameworkvfsoverlay: lhs.frameworkvfsoverlay <> rhs.frameworkvfsoverlay,
             moduleMapFile: lhs.moduleMapFile <> rhs.moduleMapFile,
             moduleName: lhs.moduleName <> rhs.moduleName,
             useHeaderMap: lhs.useHeaderMap <> rhs.useHeaderMap,

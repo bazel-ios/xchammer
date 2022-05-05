@@ -674,6 +674,18 @@ public class XcodeTarget: Hashable, Equatable {
         return Set(deps)
     }()
 
+    func getVFSPath(_ compilerFlags: String) -> String? {
+        guard let startIdx = compilerFlags.range(of: "vfsoverlay") else {
+            return nil
+        }
+
+        var foundVFS = compilerFlags[startIdx.upperBound...]
+        if let terminator = foundVFS.range(of: " ") {
+            foundVFS = foundVFS[..<terminator.lowerBound]
+        }
+        return String(foundVFS)
+    }
+
     lazy var settings: XCBuildSettings = {
         let targetMap = self.targetMap
         let genOptions = self.genOptions
@@ -730,6 +742,11 @@ public class XcodeTarget: Hashable, Equatable {
                             // replicate frameworks in Xcode, however this
                             // needs to be set at the language level
                             return
+                        } else if opt.hasPrefix("-ivfsoverlay") {
+                            // Assume using Bazel's VFS is trouble ( FIXME Pure Xcode only )
+                            getVFSPath(opt).map { settings.frameworkvfsoverlay <>= First(subBazelMakeVariables($0, useSRCRoot: true)) }
+                        } else if opt == "-F/build_bazel_rules_ios/frameworks" {
+                            accum.append("-F$BUILT_PRODUCTS_DIR")
                         } else if !opt.isEmpty {
                             accum.append(subBazelMakeVariables(opt, useSRCRoot: true))
                         }
@@ -791,6 +808,15 @@ public class XcodeTarget: Hashable, Equatable {
                         } else if opt == "-index-store-path" || (idx > 0 &&
                             coptsArray[idx - 1] == "-index-store-path") {
                             return
+                        } else if (opt == "-Xfrontend" && coptsArray[idx + 1].hasPrefix("-vfsoverlay")) || (idx + 1 < coptsArray.count) && coptsArray[idx + 1].hasPrefix("-vfsoverlay") {
+                            return
+                        } else if opt == "-Xcc" && coptsArray[idx + 1].hasPrefix("-ivfsoverlay") {
+                            return
+                        } else if opt.hasPrefix("-ivfsoverlay") {
+                            // Assume using Bazel's VFS is trouble ( FIXME Pure Xcode only )
+                            getVFSPath(opt).map { settings.frameworkvfsoverlay <>= First(subBazelMakeVariables($0, useSRCRoot: true)) }
+                        } else if opt == "-F/build_bazel_rules_ios/frameworks" {
+                            accum.append("-F$BUILT_PRODUCTS_DIR")
                         } else if !opt.isEmpty {
                             accum.append(subBazelMakeVariables(opt, useSRCRoot: true))
                         }
