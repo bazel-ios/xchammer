@@ -5,7 +5,7 @@ import Result
 import PathKit
 
 struct VFSRoot: Codable {
-  enum CodingKeys : String, CodingKey {
+    enum CodingKeys : String, CodingKey {
         case name = "name"
         case type = "type"
         case contents = "contents"
@@ -31,25 +31,8 @@ func findRoot(name: String, roots: [VFSRoot]) -> VFSRoot? {
     return nil
 }
 
-/// Takes something like 
-/// -DSome -vfsoverlay/some/other -DNone and parses the VFS
-func getVFSPath(compilerFlags: String) -> String? {
-    guard let startIdx = compilerFlags.range(of: "vfsoverlay") else {
-        return nil
-    }
 
-    var foundVFS = compilerFlags[startIdx.upperBound...]
-    if let terminator = foundVFS.range(of: " ") {
-        foundVFS = foundVFS[..<terminator.lowerBound]
-    }
-    return String(foundVFS)
-}
-
-func doInstall(targetBuildDir: Path, frameworkName: String, compilerFlags: String) throws {
-    guard let vfsPath = getVFSPath(compilerFlags: compilerFlags) else {
-        print("warning: no VFS - skipping copy files for framework \(frameworkName)")
-        return
-    }
+func doInstall(targetBuildDir: Path, frameworkName: String, vfsPath: String) throws {
     let jsonData = try Path(vfsPath).read()
     let vfsFile = try JSONDecoder().decode(VFSFile.self, from: jsonData)
 
@@ -79,13 +62,14 @@ func doInstall(targetBuildDir: Path, frameworkName: String, compilerFlags: Strin
                     withIntermediateDirectories: true,
                     attributes: [:])
         headers.contents?.forEach  { header in
-            guard let headerPathS = header.externalContents  else {
+            guard let externalContents = header.externalContents else {
                 return
             }
-            let headerPath = Path(headerPathS)
-            let fwHeader = dstFrameworkPath + Path("Headers") + Path(headerPath.lastComponent)
-            try? FileManager.default.createSymbolicLink(at: fwHeader.url, 
-                                    withDestinationURL: headerPath.url)
+            let headerPath = Path(externalContents)
+            let dstHeader = dstFrameworkPath + Path("Headers") + Path(headerPath.lastComponent)
+            try? FileManager.default.removeItem(at: dstHeader.url)
+            try? FileManager.default.createSymbolicLink(atPath: dstHeader.string, 
+                                    withDestinationPath: getVFSEntryPath(headerPath))
         }
     }
 
@@ -94,14 +78,22 @@ func doInstall(targetBuildDir: Path, frameworkName: String, compilerFlags: Strin
                     withIntermediateDirectories: true,
                     attributes: [:])
         privateHeaders.contents?.forEach  { header in
-            guard let headerPathS = header.externalContents  else {
+            guard let externalContents = header.externalContents else {
                 return
             }
-            let headerPath = Path(headerPathS)
-            let fwHeader = dstFrameworkPath + Path("PrivateHeaders") + Path(headerPath.lastComponent)
-            try? FileManager.default.createSymbolicLink(at: fwHeader.url, 
-                                    withDestinationURL: headerPath.url)
+            let headerPath = Path(externalContents)
+            let dstHeader = dstFrameworkPath + Path("PrivateHeaders") + Path(headerPath.lastComponent)
+            try? FileManager.default.removeItem(at: dstHeader.url)
+            try? FileManager.default.createSymbolicLink(atPath: dstHeader.string, 
+                                    withDestinationPath: getVFSEntryPath(headerPath))
         }
+    }
+
+    // return an absolute path of a file in the VFS
+    func getVFSEntryPath(_ vfsIPath: Path) -> String {
+        let locRootPath = ProcessInfo.processInfo.environment["LOCROOT"] ?? "" 
+        let suffix = vfsIPath.absolute().string.replacingOccurrences(of: "../", with:"")
+        return suffix.hasPrefix(locRootPath) ? suffix : locRootPath + suffix
     }
 
     try? FileManager.default.createDirectory(atPath: (dstFrameworkPath + Path("Modules")).string,
@@ -111,29 +103,23 @@ func doInstall(targetBuildDir: Path, frameworkName: String, compilerFlags: Strin
     if let modules = findRoot(name: "Modules", roots:
                                 fwRoot.contents ?? []) {
         modules.contents?.forEach  { header in
-            guard let headerPathS = header.externalContents  else {
+            guard let externalContents = header.externalContents else {
                 return
             }
-            // FIXME: This is wrong! use the name before merging this
-            let dstName: String
-            let headerPath = Path(headerPathS)
-            if headerPath.extension == "modulemap" {
-                dstName = "module.modulemap"
-            } else {
-                dstName = headerPath.lastComponent
-            }
-
-            let fwHeader = dstFrameworkPath + Path("Modules") + Path(dstName)
-            try? FileManager.default.createSymbolicLink(at: fwHeader.url, 
-                                    withDestinationURL: headerPath.url)
+            let headerPath = Path(externalContents)
+            let dstName = header.name
+            let dstHeader = dstFrameworkPath + Path("Modules") + Path(dstName)
+            try? FileManager.default.removeItem(at: dstHeader.url)
+            try? FileManager.default.createSymbolicLink(atPath: dstHeader.string, 
+                                    withDestinationPath: getVFSEntryPath(headerPath))
         }
     }
 }
 
-func installVFS(targetBuildDir: Path, frameworkName: String, compilerFlags: String) -> Result<(), CommandError> {
+func installVFS(targetBuildDir: Path, frameworkName: String, vfsPath: String) -> Result<(), CommandError> {
     do {
         try doInstall(targetBuildDir: targetBuildDir, frameworkName:
-                      frameworkName, compilerFlags: compilerFlags)
+                      frameworkName, vfsPath: vfsPath)
         return .success(())
     } catch {
         return .failure(.swiftException(error))
