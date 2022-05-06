@@ -64,7 +64,7 @@ swift_c_module(
         module_map = module_map,
     ))
 
-def namespaced_swift_library(name, srcs, deps = None, defines = None, copts=[]):
+def namespaced_swift_library(name, srcs, deps = None, defines = None, copts = []):
     deps = [] if deps == None else deps
     defines = [] if defines == None else defines
     return """
@@ -99,7 +99,7 @@ def xchammer_dependencies():
                 srcs = ["Sources/**/*.swift"],
             ),
         ]),
-        commit = "54bb8ea6fb693dd3f92a89e5fcc19e199fdeedd0",
+        commit = "38f7d00b23ecd891e1ee656fa6aeebd6ba04ecc3",
     )
 
     namespaced_new_git_repository(
@@ -151,7 +151,7 @@ def xchammer_dependencies():
                 srcs = ["Sources/**/*.swift"],
                 copts = [
                     "-swift-version",
-                    "4.2"
+                    "4.2",
                 ],
             ),
         ]),
@@ -258,6 +258,11 @@ def xchammer_dependencies():
     namespaced_git_repository(
         name = "Tulsi",
         remote = "https://github.com/bazel-ios/tulsi.git",
+        # These tags are based on the bazel-version - see XCHammer docs for
+        # convention. It cherry-picks all changes to HEAD at a give bazel
+        # release, then adds changes to this tag for the Bazel release in
+        # question
+        # Persisted on github tag=rules_ios-5.0.0,
         commit = "785adc4e33cb0cf7eaf7a05b9be5a8e6c37f6056",
         patch_cmds = [
             """
@@ -272,7 +277,7 @@ def xchammer_dependencies():
     namespaced_new_git_repository(
         name = "XcodeGen",
         remote = "https://github.com/yonaskolb/XcodeGen.git",
-        commit = "1e3f93a8593dae08c3db6ee8cecc0bf3b83cc9f2",
+        commit = "047e9968d6e5308df73126d72cb42af8527a644c",
         build_file_content = namespaced_build_file([
             namespaced_swift_library(
                 name = "XcodeGenKit",
@@ -282,12 +287,12 @@ def xchammer_dependencies():
                     "@JSONUtilities//:JSONUtilities",
                     "@PathKit//:PathKit",
                     "@Yams//:Yams",
-                    ":Core",
+                    ":XcodeGenCore",
                 ],
             ),
             namespaced_swift_library(
-                name = "Core",
-                srcs = ["Sources/Core/**/*.swift"],
+                name = "XcodeGenCore",
+                srcs = ["Sources/XcodeGenCore/**/*.swift"],
                 deps = [
                     "@PathKit//:PathKit",
                     "@Yams//:Yams",
@@ -300,7 +305,8 @@ def xchammer_dependencies():
                     "@JSONUtilities//:JSONUtilities",
                     "@XcodeProj//:XcodeProj",
                     "@Yams//:Yams",
-                    ":Core",
+                    "@Version//:Version",
+                    ":XcodeGenCore",
                 ],
             ),
         ]),
@@ -308,7 +314,7 @@ def xchammer_dependencies():
     namespaced_new_git_repository(
         name = "XcodeProj",
         remote = "https://github.com/tuist/xcodeproj.git",
-        commit = "912d40cc2ea4a300eff6dd7c6a10b4f4dedbcbec",
+        commit = "aa2a42c7a744ca18b5918771fdd6cf40f9753db5",
         build_file_content = namespaced_build_file([
             namespaced_swift_library(
                 name = "XcodeProj",
@@ -317,13 +323,12 @@ def xchammer_dependencies():
                     "@AEXML//:AEXML",
                     "@PathKit//:PathKit",
                     "@SwiftShell//:SwiftShell",
-                    "@XcodeProjCExt//:XcodeProjCExt",
                     "@Version//:Version",
                     "@GraphViz//:DOT",
                 ],
                 copts = [
                     "-swift-version",
-                    "5"
+                    "5",
                 ],
             ),
         ]),
@@ -332,33 +337,33 @@ def xchammer_dependencies():
     namespaced_new_git_repository(
         name = "GraphViz",
         remote = "https://github.com/SwiftDocOrg/GraphViz.git",
-        commit = "6a89c4a011c3d60603bda4e17b1f14838eb26917",
+        commit = "70bebcf4597b9ce33e19816d6bbd4ba9b7bdf038",
         build_file_content = namespaced_build_file([
             namespaced_swift_library(
                 name = "DOT",
                 srcs = ["Sources/DOT/**/*.swift"],
-                deps = [ ":GraphViz" ],
+                deps = [":GraphViz"],
                 copts = [
                     "-swift-version",
-                    "5"
+                    "5",
                 ],
             ),
             namespaced_swift_library(
                 name = "GraphVizBuilder",
                 srcs = ["Sources/GraphVizBuilder/**/*.swift"],
-                deps = [ ":GraphViz" ],
+                deps = [":GraphViz"],
                 copts = [
                     "-swift-version",
-                    "5"
+                    "5",
                 ],
             ),
             namespaced_swift_library(
                 name = "GraphViz",
-                srcs = [ "Sources/GraphViz/**/*.swift" ],
-                deps = [ ],
+                srcs = ["Sources/GraphViz/**/*.swift"],
+                deps = [],
                 copts = [
                     "-swift-version",
-                    "5"
+                    "5",
                 ],
             ),
         ]),
@@ -372,36 +377,19 @@ def xchammer_dependencies():
             namespaced_swift_library(
                 name = "Version",
                 srcs = ["Sources/**/*.swift"],
-                deps = [ ],
+                deps = [],
                 copts = [
                     "-swift-version",
-                    "5"
+                    "5",
                 ],
             ),
         ]),
     )
 
     namespaced_new_git_repository(
-        name = "XcodeProjCExt",
-        remote = "https://github.com/tuist/XcodeProjCExt.git",
-        commit = "21a510c225ff2bc83d5920a21d902af4b1e7e218",
-        build_file_content = """
-package(default_visibility = ["//visibility:public"])
-
-objc_library(
-    name = "XcodeProjCExt",
-    module_name = "XcodeProjCExt",
-    srcs = glob(["Sources/**/*.c"]),
-    hdrs = glob(["Sources/**/*.h"]),
-    includes = ["Sources/XcodeProjCExt/include"],
-)
-        """
-    )
-
-    namespaced_new_git_repository(
         name = "Yams",
         remote = "https://github.com/jpsim/Yams.git",
-        commit = "c947a306d2e80ecb2c0859047b35c73b8e1ca27f",
+        commit = "9ff1cc9327586db4e0c8f46f064b6a82ec1566fa",
         patch_cmds = [
             """
 echo '

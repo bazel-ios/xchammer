@@ -383,7 +383,7 @@ public class XcodeTarget: Hashable, Equatable {
             .map { fileInfo -> ProjectSpec.TargetSource in
                 let path = self.getRelativePath(for: fileInfo)
                 let phase = XcodeTarget.isHeaderLike(path: path) ?
-                    TargetSource.BuildPhase.headers : nil
+                    BuildPhaseSpec.headers : nil
                 return ProjectSpec.TargetSource(path: path, buildPhase: phase,
                         headerVisibility:
                         TargetSource.HeaderVisibility.`project`)
@@ -393,7 +393,7 @@ public class XcodeTarget: Hashable, Equatable {
                 fileInfo -> ProjectSpec.TargetSource in
                 let path = self.getRelativePath(for: fileInfo)
                 let phase = XcodeTarget.isHeaderLike(path: path) ?
-                    TargetSource.BuildPhase.headers : nil
+                    BuildPhaseSpec.headers : nil
                 return ProjectSpec.TargetSource(path: path,
                          compilerFlags: ["-fno-objc-arc"],
                         buildPhase: phase, headerVisibility:
