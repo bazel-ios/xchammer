@@ -273,16 +273,15 @@ struct InstallVFSCommand: CommandProtocol {
         guard let targetBuildDir = ProcessInfo.processInfo.environment["TARGET_BUILD_DIR"] else {
             return .failure(.basic("$TARGET_BUILD_DIR not found in the env"))
         }
-        let otherCFlags = ProcessInfo.processInfo.environment["OTHER_CFLAGS"] ?? " "
-        let otherSwiftFlags = ProcessInfo.processInfo.environment["OTHER_SWIFT_FLAGS"]  ?? " "
+        let vfsOverlay = ProcessInfo.processInfo.environment["RULES_IOS_OBJC_VFS_OVERLAY"]
+            ?? ProcessInfo.processInfo.environment["RULES_IOS_SWIFT_VFS_OVERLAY"] ?? ""
         guard let frameworkName =
         ProcessInfo.processInfo.environment["PRODUCT_NAME"] else {
             return .failure(.basic("$PRODUCT_NAME not found in the env"))
         }
 
-        return installVFS(targetBuildDir: Path(targetBuildDir),
-                          frameworkName:frameworkName, compilerFlags:
-                           otherCFlags + " " + otherSwiftFlags)
+        return installVFS(targetBuildDir: Path(targetBuildDir), frameworkName:
+                          frameworkName, vfsPath: vfsOverlay)
     }
 }
 

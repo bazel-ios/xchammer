@@ -674,6 +674,21 @@ public class XcodeTarget: Hashable, Equatable {
         return Set(deps)
     }()
 
+    /// Parses out a VFS path
+    /// Takes something like 
+    /// -DSome -vfsoverlay/some/other -DNone and returns the VFS path
+    private func getVFSPath(_ compilerFlags: String) -> String? {
+        guard let startIdx = compilerFlags.range(of: "vfsoverlay") else {
+            return nil
+        }
+
+        var foundVFS = compilerFlags[startIdx.upperBound...]
+        if let terminator = foundVFS.range(of: " ") {
+            foundVFS = foundVFS[..<terminator.lowerBound]
+        }
+        return String(foundVFS)
+    }
+
     lazy var settings: XCBuildSettings = {
         let targetMap = self.targetMap
         let genOptions = self.genOptions
@@ -711,6 +726,9 @@ public class XcodeTarget: Hashable, Equatable {
             return nil
         }
 
+        let projectConfig = genOptions.config .projects[genOptions.projectName]
+        let generateXcodeTargets = (projectConfig?.generateXcodeSchemes ?? true != false)
+
         var settings = XCBuildSettings()
         self.attributes.keys.sorted(by: { $0.rawValue < $1.rawValue }).forEach { attr in
             let value = self.attributes[attr]!
@@ -730,6 +748,11 @@ public class XcodeTarget: Hashable, Equatable {
                             // replicate frameworks in Xcode, however this
                             // needs to be set at the language level
                             return
+                        } else if generateXcodeTargets && opt.hasPrefix("-ivfsoverlay") {
+                            // Assume using Bazel's VFS is trouble ( FIXME Pure Xcode only )
+                            let _ = getVFSPath(opt).map { settings.objcFrameworkVFSOverlay <>= First(subBazelMakeVariables($0, useSRCRoot: true)) }
+                        } else if generateXcodeTargets && opt == "-F/build_bazel_rules_ios/frameworks" {
+                            accum.append("-F$BUILT_PRODUCTS_DIR")
                         } else if !opt.isEmpty {
                             accum.append(subBazelMakeVariables(opt, useSRCRoot: true))
                         }
@@ -783,6 +806,20 @@ public class XcodeTarget: Hashable, Equatable {
                 break // Logic handled in extractSwiftVersion function since there is a logical order of determining SWIFT_VERSION
             case .swiftc_opts:
                 if let coptsArray = value as? [String] {
+                    let stripSwiftVFSOpt = { (opt: String, idx: Int) -> Bool in
+                        guard generateXcodeTargets else {
+                            return false
+                        }
+
+                        if opt.hasPrefix("-vfsoverlay") ||
+                            (opt == "-Xfrontend" && coptsArray[idx + 1].hasPrefix("-vfsoverlay")) ||
+                             (idx + 1 < coptsArray.count) && coptsArray[idx + 1].hasPrefix("-vfsoverlay") {
+                            return true
+                        } else if opt == "-Xcc" && coptsArray[idx + 1].hasPrefix("-ivfsoverlay") {
+                            return true
+                        }
+                        return false
+                    }
                     let processedOpts = coptsArray.enumerated().reduce(into: [String]()) {
                         accum, itr in
                         let (idx, opt) = itr
@@ -791,6 +828,12 @@ public class XcodeTarget: Hashable, Equatable {
                         } else if opt == "-index-store-path" || (idx > 0 &&
                             coptsArray[idx - 1] == "-index-store-path") {
                             return
+                        } else if stripSwiftVFSOpt(opt, idx) {
+                            return
+                        } else if generateXcodeTargets && opt.hasPrefix("-ivfsoverlay") {
+                            let _ = getVFSPath(opt).map { settings.swiftFrameworkVFSOverlay <>= First(subBazelMakeVariables($0, useSRCRoot: true)) }
+                        } else if opt == "-F/build_bazel_rules_ios/frameworks" {
+                            accum.append("-F$BUILT_PRODUCTS_DIR")
                         } else if !opt.isEmpty {
                             accum.append(subBazelMakeVariables(opt, useSRCRoot: true))
                         }
@@ -1599,16 +1642,21 @@ private func makeScripts(for xcodeTarget: XcodeTarget, genOptions: XCHammerGener
         return  ProjectSpec.BuildScript(path: nil, script: processContent, name: "Install VFS")
     }
 
+    func getModuleMapScript() -> ProjectSpec.BuildScript {
+        let xchammerBin = Generator.getXCHammerBinPath(genOptions: genOptions)
+        // Install the module map into the framework _after_ compiling only if it exists
+        let processContent = "[[ -n ${MODULEMAP_FILE:-} ]] || exit 0; rm -rf $TARGET_BUILD_DIR/${PRODUCT_NAME}.framework/Modules/module.modulemap; cp $MODULEMAP_FILE $TARGET_BUILD_DIR/${PRODUCT_NAME}.framework/Modules/module.modulemap"
+        return  ProjectSpec.BuildScript(path: nil, script: processContent, name: "Install module.modulemap")
+    }
+
     func getCodeSignerScript() -> ProjectSpec.BuildScript {
         let codeSignerContent = "$PROJECT_FILE_PATH/" + XCHammerAsset.codesigner.getPath()
         return ProjectSpec.BuildScript(path: nil, script: codeSignerContent, name: "Codesign")
     }
 
-    let basePostScripts: [ProjectSpec.BuildScript] = []
+    let basePostScripts: [ProjectSpec.BuildScript] = xcodeTarget.type == "apple_framework_packaging" ? [getModuleMapScript()] : []
     let postScripts: [ProjectSpec.BuildScript]
-
-    // TODO(rules_ios) make conditional only - probably based on the rule type
-    let basePreScripts: [ProjectSpec.BuildScript] = [getInstallVFSScript()]
+    let preScripts: [ProjectSpec.BuildScript] = xcodeTarget.type == "apple_framework_packaging" ? [getInstallVFSScript()] : []
 
     if xcodeTarget.needsRecursiveExtraction,
         xcodeTarget.mobileProvisionProfileFile != nil,
@@ -1621,7 +1669,7 @@ private func makeScripts(for xcodeTarget: XcodeTarget, genOptions: XCHammerGener
         postScripts = xcodeTarget.type.contains("application") ? [getProcessScript()] : []
     }
 
-    return (basePreScripts, basePostScripts + postScripts)
+    return (preScripts, basePostScripts + postScripts)
 }
 
 
