@@ -1527,7 +1527,7 @@ public class XcodeTarget: Hashable, Equatable {
                         pathsPredicate) }
 
             // Use settings, sources, and deps from the fusable deps
-            sources = fusableDeps.flatMap { $0.xcSources }
+            sources = xcodeTarget.xcResources + fusableDeps.flatMap { $0.xcSources }
             settings = xcodeTarget.settings
                 <> fusableDeps.foldMap { $0.settings }
             if shouldPropagateDeps(forTarget: xcodeTarget) {
