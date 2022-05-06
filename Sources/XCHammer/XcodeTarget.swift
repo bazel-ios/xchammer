@@ -63,7 +63,7 @@ let DirectoriesAsFileSuffixes: [String] = [
 
 func isBundleLibrary(_ ruleType: String) -> Bool {
     // TODO: Remove deprecated rule
-    return ruleType == "objc_bundle_library" || ruleType == "apple_resource_bundle"
+    return ruleType == "objc_bundle_library" || ruleType == "apple_resource_bundle" || ruleType == "_precompiled_apple_resource_bundle"
 }
 
 func isBundle(_ ruleType: String) -> Bool {
@@ -469,7 +469,19 @@ public class XcodeTarget: Hashable, Equatable {
                         stopAfterNeedsRecursive ))
                 .filter { !$0.isEntitlementsDep }
 
-            return Array(Set(deps.flatMap { $0.myResources }))
+            // Install compiled bundles from BUILT_PRODUCTS_DIR
+            let bundleDeps: [XcodeTarget] = ([self] +
+                    self.transitiveTargets(map:
+                        self.targetMap, predicate:
+                        stopAfterNeedsRecursive ))
+                .filter { isBundleLibrary($0.type) }
+            let bundles = bundleDeps
+                .map { xcodeTarget -> ProjectSpec.TargetSource in
+                    let name = "$(BUILT_PRODUCTS_DIR)/" + xcodeTarget.xcTargetName + ".bundle"
+                    return ProjectSpec.TargetSource(path: name, group: "Products", type: .folder, buildPhase: .resources)
+                    
+                }
+            return Array(Set(deps.flatMap { $0.myResources })) + bundles
         } else {
             // FIXME: We naievely copy all resources
             return self.myResources
