@@ -138,6 +138,7 @@ func includeTarget(_ xcodeTarget: XcodeTarget, pathPredicate: (String) -> Bool) 
 // Traversal predicates
 private let stopAfterNeedsRecursive: TraversalTransitionPredicate<XcodeTarget> = TraversalTransitionPredicate { $0.needsRecursiveExtraction ? .justOnceMore : .keepGoing }
 private let stopAtBundles: TraversalTransitionPredicate<XcodeTarget> = TraversalTransitionPredicate { isBundleLibrary($0.type) ? .stop : .keepGoing }
+private let keepGoing: TraversalTransitionPredicate<XcodeTarget> = TraversalTransitionPredicate { _ in .keepGoing }
 
 let XCHammerIncludesSRCRoot = "$(SRCROOT)/xchammer-includes/x/x/"
 let XCHammerIncludes = "xchammer-includes/x/x/"
@@ -472,8 +473,7 @@ public class XcodeTarget: Hashable, Equatable {
             // Install compiled bundles from BUILT_PRODUCTS_DIR
             let bundleDeps: [XcodeTarget] = ([self] +
                     self.transitiveTargets(map:
-                        self.targetMap, predicate:
-                        stopAfterNeedsRecursive ))
+                        self.targetMap, predicate: keepGoing ))
                 .filter { isBundleLibrary($0.type) }
             let bundles = bundleDeps
                 .map { xcodeTarget -> ProjectSpec.TargetSource in
