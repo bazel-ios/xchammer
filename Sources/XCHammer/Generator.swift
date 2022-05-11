@@ -134,7 +134,7 @@ enum Generator {
             XCHammerGenerateOptions, projectPath: Path, depsHash: String) -> ProjectSpec.Target {
         let generateCommand: [String]
         if let xcodeProjectRuleInfo = genOptions.xcodeProjectRuleInfo {
-            generateCommand = [genOptions.bazelPath.string, "build" ] +
+            generateCommand = [genOptions.bazelPath.string, "build" ] + ["--define=apple.experimental.tree_artifact_outputs=0"] +
                 xcodeProjectRuleInfo.bazelTargets
         } else {
             // Use whatever command and XCHammer this project was built with
