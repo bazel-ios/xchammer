@@ -479,7 +479,6 @@ public class XcodeTarget: Hashable, Equatable {
                 .map { xcodeTarget -> ProjectSpec.TargetSource in
                     let name = "$(BUILT_PRODUCTS_DIR)/" + xcodeTarget.extractBuiltProductName() + ".bundle"
                     return ProjectSpec.TargetSource(path: name, group: "Products", type: .folder, buildPhase: .resources)
-                    
                 }
             return Array(Set(deps.flatMap { $0.myResources })) + bundles
         } else {
@@ -578,10 +577,7 @@ public class XcodeTarget: Hashable, Equatable {
             case .Framework:
             return xcTargetName
             case .Bundle:
-            guard let delimIdx = xcTargetName.firstIndex(of: "-") else {
-                return xcTargetName
-            }
-            return String(xcTargetName[xcTargetName.index(after: delimIdx)...])
+            return bundleName ?? xcTargetName
             default:
             return "$(TARGET_NAME)"
         }
