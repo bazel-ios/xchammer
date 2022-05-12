@@ -63,7 +63,7 @@ let DirectoriesAsFileSuffixes: [String] = [
 
 func isBundleLibrary(_ ruleType: String) -> Bool {
     // TODO: Remove deprecated rule
-    return ruleType == "objc_bundle_library" || ruleType == "apple_resource_bundle"
+    return ruleType == "objc_bundle_library" || ruleType == "apple_resource_bundle" || ruleType == "_precompiled_apple_resource_bundle"
 }
 
 func isBundle(_ ruleType: String) -> Bool {
@@ -138,6 +138,7 @@ func includeTarget(_ xcodeTarget: XcodeTarget, pathPredicate: (String) -> Bool) 
 // Traversal predicates
 private let stopAfterNeedsRecursive: TraversalTransitionPredicate<XcodeTarget> = TraversalTransitionPredicate { $0.needsRecursiveExtraction ? .justOnceMore : .keepGoing }
 private let stopAtBundles: TraversalTransitionPredicate<XcodeTarget> = TraversalTransitionPredicate { isBundleLibrary($0.type) ? .stop : .keepGoing }
+private let keepGoing: TraversalTransitionPredicate<XcodeTarget> = TraversalTransitionPredicate { _ in .keepGoing }
 
 let XCHammerIncludesSRCRoot = "$(SRCROOT)/xchammer-includes/x/x/"
 let XCHammerIncludes = "xchammer-includes/x/x/"
@@ -469,7 +470,17 @@ public class XcodeTarget: Hashable, Equatable {
                         stopAfterNeedsRecursive ))
                 .filter { !$0.isEntitlementsDep }
 
-            return Array(Set(deps.flatMap { $0.myResources }))
+            // Install compiled bundles from BUILT_PRODUCTS_DIR
+            let bundleDeps: [XcodeTarget] = ([self] +
+                    self.transitiveTargets(map:
+                        self.targetMap, predicate: keepGoing ))
+                .filter { isBundleLibrary($0.type) }
+            let bundles = bundleDeps
+                .map { xcodeTarget -> ProjectSpec.TargetSource in
+                    let name = "$(BUILT_PRODUCTS_DIR)/" + xcodeTarget.extractBuiltProductName() + ".bundle"
+                    return ProjectSpec.TargetSource(path: name, group: "Products", type: .folder, buildPhase: .resources)
+                }
+            return Array(Set(deps.flatMap { $0.myResources })) + bundles
         } else {
             // FIXME: We naievely copy all resources
             return self.myResources
@@ -565,6 +576,8 @@ public class XcodeTarget: Hashable, Equatable {
             return xcTargetName
             case .Framework:
             return xcTargetName
+            case .Bundle:
+            return bundleName ?? xcTargetName
             default:
             return "$(TARGET_NAME)"
         }
