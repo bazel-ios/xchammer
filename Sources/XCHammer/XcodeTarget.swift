@@ -107,6 +107,9 @@ func includeTarget(_ xcodeTarget: XcodeTarget, pathPredicate: (String) -> Bool) 
     if xcodeTarget.type == "swift_runtime_linkopts" {
         return false
     }
+    if xcodeTarget.type == "_precompiled_apple_resource_bundle" {
+        return true
+    }
 
     let implSrcs = getImplSources(xcodeTarget, pathPredicate: pathPredicate)
     if implSrcs.count == 0 {
