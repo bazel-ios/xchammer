@@ -117,7 +117,7 @@ def _extract_generated_sources(target, ctx):
         objc = target[ObjcInfo]
         files.append(depset(objc.direct_headers))
     trans_files = depset(transitive = files)
-    return [f for f in trans_files.to_list() if not f.is_source and not f.path.endswith("-Swift.h")]
+    return [f for f in trans_files.to_list() if not f.is_source]
 
 get_srcroot = "\"$(cat ../../DO_NOT_BUILD_HERE)/\""
 non_hermetic_execution_requirements = { "no-cache": "1", "no-remote": "1", "local": "1", "no-sandbox": "1" }
