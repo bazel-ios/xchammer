@@ -1255,7 +1255,7 @@ public class XcodeTarget: Hashable, Equatable {
     }()
 
     func extractLibraryDeps(map targetMap: XcodeTargetMap) -> [String] {
-        return transitiveTargets(map: targetMap, predicate: stopAfterNeedsRecursive)
+        return transitiveTargets(map: targetMap, predicate: keepGoing)
             .filter { $0.type == "objc_import" }
             .compactMap { target -> [String]? in
                 guard let archives = target.attributes[.archives] as? [[String: Any]] else {
