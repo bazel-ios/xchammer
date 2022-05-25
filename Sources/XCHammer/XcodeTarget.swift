@@ -1268,7 +1268,7 @@ public class XcodeTarget: Hashable, Equatable {
 
     func extractAttributeArray(attr: RuleEntry.Attribute, map targetMap: XcodeTargetMap) -> [String] {
         if needsRecursiveExtraction {
-            return ([self] + transitiveTargets(map: targetMap, predicate: stopAfterNeedsRecursive))
+            return ([self] + transitiveTargets(map: targetMap, predicate: keepGoing))
                 .flatMap { $0.attributes[attr] as? [String] ?? [] }
         } else {
             return attributes[attr] as? [String] ?? []
