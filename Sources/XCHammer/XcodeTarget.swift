@@ -521,7 +521,7 @@ public class XcodeTarget: Hashable, Equatable {
     lazy var myResources: [ProjectSpec.TargetSource] = {
         let pathsPredicate = makeOptionalPathFiltersPredicate(self.genOptions)
         let resources: [ProjectSpec.TargetSource] = self.pathsForAttrs(attrs:
-                [.launch_storyboard, .supporting_files])
+                [.launch_storyboard, .supporting_files, .datamodels])
             .filter(self.isAllowableXcodeGenSource(path:))
             .filter { pathsPredicate($0.string) }
             .compactMap { inputPath in
