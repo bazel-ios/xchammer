@@ -1,12 +1,12 @@
 workspace(name = "xchammer")
 
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
-load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file")
 
 git_repository(
     name = "build_bazel_rules_apple",
+    commit = "7115f0188d141d57d64a6875735847c975956dae",
     remote = "https://github.com/bazelbuild/rules_apple.git",
-    commit = "1cdaf74e44c4c969d7ee739b3a0f11b993c49d2a",
 )
 
 load(
@@ -14,10 +14,12 @@ load(
     "apple_rules_dependencies",
 )
 
+apple_rules_dependencies()
+
 git_repository(
     name = "build_bazel_rules_swift",
+    commit = "22192877498705ff1adbecd820fdc2724414b0b2",
     remote = "https://github.com/bazelbuild/rules_swift.git",
-    commit = "d07d880dcf939e0ad98df4dd723f8516bf8a2867",
 )
 
 load(
@@ -27,14 +29,12 @@ load(
 
 swift_rules_dependencies()
 
-apple_rules_dependencies()
-
 load(
-    "@com_google_protobuf//:protobuf_deps.bzl",
-    "protobuf_deps",
+    "@build_bazel_rules_swift//swift:extras.bzl",
+    "swift_rules_extra_dependencies",
 )
 
-protobuf_deps()
+swift_rules_extra_dependencies()
 
 load(
     "@build_bazel_apple_support//lib:repositories.bzl",
@@ -42,7 +42,13 @@ load(
 )
 
 apple_support_dependencies()
-load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
+
+load(
+    "@com_google_protobuf//:protobuf_deps.bzl",
+    "protobuf_deps",
+)
+
+protobuf_deps()
 
 http_file(
     name = "xctestrunner",
@@ -61,14 +67,13 @@ xchammer_dependencies()
 # https://github.com/bazelbuild/bazel/issues/1550
 git_repository(
     name = "xcbuildkit",
-    remote = "https://github.com/jerrymarino/xcbuildkit.git",
     commit = "b619d25f65cf7195c57e2dbc26d488e5606e763a",
+    remote = "https://github.com/jerrymarino/xcbuildkit.git",
 )
 
-load("@xcbuildkit//third_party:repositories.bzl", xcbuildkit_dependencies="dependencies")
+load("@xcbuildkit//third_party:repositories.bzl", xcbuildkit_dependencies = "dependencies")
 
 xcbuildkit_dependencies()
-
 
 ## Buildifier deps (Bazel file formatting)
 http_archive(
