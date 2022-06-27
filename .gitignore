@@ -26,3 +26,9 @@ external
 *.swp
 
 xchammer-includes
+
+# SPM outputs
+.build/
+
+# VSCode configuration
+.vscode/

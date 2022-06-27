@@ -225,6 +225,10 @@ struct GenerateCommandV2: CommandProtocol {
             let _ = try validate(config: config, workspaceRootPath:
                     options.workspaceRootPath)
 
+            // A number of things are assumed relative to SRCROOT.
+            // Xcode fails to build/debug if you set the working directory there, so this
+            // should be a reasonably safe workaround.
+            FileManager.default.changeCurrentDirectoryPath(options.workspaceRootPath.string)
            
             let ruleInfo = try getXcodeProjectRuleInfo(path: options.xcodeProjectRuleInfoPath)
             let result = Generator.generateProjectsV2(workspaceRootPath:
