@@ -860,10 +860,8 @@ public class XcodeTarget: Hashable, Equatable {
                     settings.swiftCopts <>= ["$(inherited)"] <> processedOpts
                 }
             default:
-                // This is extremely noisy on larger projects.
-                if false {
-                    print("TODO: Unimplemented attribute \(attr) \(value)")
-                }
+                // attribute was not handled
+                break
             }
         }
 

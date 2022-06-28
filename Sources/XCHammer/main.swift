@@ -328,16 +328,9 @@ func main() {
     // Remove Xcode running arguments. Xcode adds these unsupported arguments
     // for an undocumented reason. Most likely, because XCHammer is treated as
     // an macOS application rather than a command line binary.
-    arguments = arguments.reduce(into: [], {
-        result, next in
-        if next == "-NSDocumentRevisionsDebugMode" {
-            return
-        }
-        if result.count == 0 && next == "YES" {
-            return
-        }
-        result.append(next)
-    })
+    if arguments.count >= 2 && arguments[arguments.endIndex - 2] == "-NSDocumentRevisionsDebugMode" {
+        arguments = arguments.dropLast(2)
+    }
 
     let verb: String
     if let first = arguments.first {
