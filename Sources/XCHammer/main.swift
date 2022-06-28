@@ -225,6 +225,10 @@ struct GenerateCommandV2: CommandProtocol {
             let _ = try validate(config: config, workspaceRootPath:
                     options.workspaceRootPath)
 
+            // A number of things are assumed relative to SRCROOT.
+            // Xcode fails to build/debug if you set the working directory there, so this
+            // should be a reasonably safe workaround.
+            FileManager.default.changeCurrentDirectoryPath(options.workspaceRootPath.string)
            
             let ruleInfo = try getXcodeProjectRuleInfo(path: options.xcodeProjectRuleInfoPath)
             let result = Generator.generateProjectsV2(workspaceRootPath:
@@ -324,16 +328,9 @@ func main() {
     // Remove Xcode running arguments. Xcode adds these unsupported arguments
     // for an undocumented reason. Most likely, because XCHammer is treated as
     // an macOS application rather than a command line binary.
-    arguments = arguments.reduce(into: [], {
-        result, next in
-        if next == "-NSDocumentRevisionsDebugMode" {
-            return
-        }
-        if result.count == 0 && next == "YES" {
-            return
-        }
-        result.append(next)
-    })
+    if arguments.count >= 2 && arguments[arguments.endIndex - 2] == "-NSDocumentRevisionsDebugMode" {
+        arguments = arguments.dropLast(2)
+    }
 
     let verb: String
     if let first = arguments.first {

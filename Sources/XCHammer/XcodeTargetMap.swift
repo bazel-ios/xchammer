@@ -19,15 +19,6 @@ import TulsiGenerator
 import ProjectSpec
 import XcodeProj
 
-/// Return flattened inner entries
-func flattenedInner(targetMap: XcodeTargetMap) -> [XcodeTarget] {
-    return targetMap.allTargets
-        .filter(shouldFlatten)
-        .flatMap { $0.unfilteredDependencies }
-        .filter { $0.type.contains("application") == false }
-        .filter { !$0.label.value.hasPrefix("//Vendor") }
-}
-
 func alwaysIncludePathPredicate(_ path: String) -> Bool {
     return true
 }
@@ -108,10 +99,10 @@ public class XcodeTargetMap {
 
     private var labelToTargets = [BuildLabel: [XcodeTarget]]()
 
-    private var internalTargets = [XcodeTarget]()
+    private var internalTargets = Set<XcodeTarget>()
 
     public lazy var allTargets: Set<XcodeTarget> = {
-        return Set(internalTargets)
+        return internalTargets
     }()
 
     init (entryMap: RuleEntryMap, genOptions: XCHammerGenerateOptions) {
@@ -125,7 +116,7 @@ public class XcodeTargetMap {
     }
 
     private func insert(xcodeTarget: XcodeTarget) {
-        internalTargets.append(xcodeTarget)
+        internalTargets.insert(xcodeTarget)
 
         let label = xcodeTarget.label
         guard var entries = labelToTargets[label] else {
@@ -215,5 +206,12 @@ public class XcodeTargetMap {
             return includeTarget(target, pathPredicate: pathsPredicate)
         })
     }()
+    
+    /// Return flattened inner entries
+    public lazy var flattenedInner: Set<XcodeTarget> = Set(allTargets
+        .filter(shouldFlatten)
+        .flatMap { $0.unfilteredDependencies })
+    .filter { !$0.type.hasSuffix("_application") }
+    .filter { !$0.label.value.hasPrefix("//Vendor") }
 }
 

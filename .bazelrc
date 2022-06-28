@@ -9,5 +9,5 @@ build \
  --spawn_strategy=standalone \
  --strategy=SwiftCompile=worker \
  --swiftcopt=-Xwrapped-swift=-debug-prefix-pwd-is-dot \
- --experimental_strict_action_env=true \
- --experimental_show_artifacts
+ --incompatible_strict_action_env=true \
+ --experimental_show_artifacts 

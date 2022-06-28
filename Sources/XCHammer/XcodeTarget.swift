@@ -85,7 +85,7 @@ func getImplSources(_ xcodeTarget: XcodeTarget, pathPredicate: (String) -> Bool)
     let implSrcs: [String]
     if xcodeTarget.shouldFuseDirectDeps {
         let targetMap = xcodeTarget.targetMap
-        let flattened = Set(flattenedInner(targetMap: targetMap))
+        let flattened = targetMap.flattenedInner
         let fusableDeps = xcodeTarget.unfilteredDependencies
                 .filter { flattened.contains($0) && includeTarget($0, pathPredicate:
                         pathPredicate) }
@@ -179,7 +179,10 @@ public class XcodeTarget: Hashable, Equatable {
         self.weakTargetMap = targetMap
         self.genOptions = genOptions
     }
-
+    
+    private static let defaultSwiftVersion: String? = {
+        try? (ShellOut.shellOut(to: "xcrun swiftc -version | cut -d ' ' -f4")).trimmingCharacters(in: .whitespacesAndNewlines)
+    }()
 
     public static func getTargetConfig(for xcodeTarget: XcodeTarget) -> XCHammerTargetConfig? {
         let genOptions = xcodeTarget.genOptions
@@ -736,7 +739,7 @@ public class XcodeTarget: Hashable, Equatable {
             if self.attributes[.has_swift_dependency] != nil || self.attributes[.has_swift_info] != nil {
                 // We don't have a guarantee the format will always be the same but it's unlikely to change
                 // ^^ I will regret these words (rmalik)
-                return try? (ShellOut.shellOut(to: "xcrun swiftc -version | cut -d ' ' -f4")).trimmingCharacters(in: .whitespacesAndNewlines)
+                return XcodeTarget.defaultSwiftVersion
             }
 
             return nil
@@ -857,7 +860,8 @@ public class XcodeTarget: Hashable, Equatable {
                     settings.swiftCopts <>= ["$(inherited)"] <> processedOpts
                 }
             default:
-                print("TODO: Unimplemented attribute \(attr) \(value)")
+                // attribute was not handled
+                break
             }
         }
 
@@ -1077,9 +1081,11 @@ public class XcodeTarget: Hashable, Equatable {
         // fuse rules_ios: because of mixed-module output types. e.g.
         // $NAME_swift and $NAME_objc cannot both declare a .swiftmodule output
         // Could test for that, or even test for a tag
-        return type.contains("-test") ||
-            type.contains("framework") ||
-            type.contains("application")
+        return type.hasSuffix("unit-test") ||
+            type.hasSuffix("ui-testing") ||
+            type.hasSuffix("framework") ||
+            type.hasSuffix("framework.static") ||
+            type.hasSuffix("application")
     }()
 
     lazy var isTopLevelTestTarget: Bool = {
@@ -1441,7 +1447,7 @@ public class XcodeTarget: Hashable, Equatable {
         let sources: [ProjectSpec.TargetSource]
         let xcodeBuildableTargetSettings: XCBuildSettings
         if shouldFuseDirectDeps {
-            let flattened = Set(flattenedInner(targetMap: targetMap))
+            let flattened = targetMap.flattenedInner
             // Determine deps to fuse into the rule.
             let pathsPredicate = makePathFiltersPredicate(genOptions.pathsSet)
             let fusableDeps = self.unfilteredDependencies
@@ -1506,19 +1512,17 @@ public class XcodeTarget: Hashable, Equatable {
     public func getXcodeBuildableTarget() -> ProjectSpec.Target? {
         let xcodeTarget = self
         let genOptions = xcodeTarget.genOptions
-        let config = genOptions.config
         let targetMap = xcodeTarget.targetMap
-        guard let type = xcodeTarget.xcType,
+        guard let _ = xcodeTarget.xcType,
               let productType = xcodeTarget.extractProductType() else {
             return nil
         }
 
-        let flattened = Set(flattenedInner(targetMap: targetMap))
+        let flattened = targetMap.flattenedInner
         let pathsPredicate = makePathFiltersPredicate(genOptions.pathsSet)
-        guard includeTarget(xcodeTarget, pathPredicate: pathsPredicate) == true
-    else {
-                return nil
-            }
+        guard includeTarget(xcodeTarget, pathPredicate: pathsPredicate) == true else {
+            return nil
+        }
 
         let xcodeTargetSources = xcodeTarget.xcSources
         let sources: [ProjectSpec.TargetSource]
