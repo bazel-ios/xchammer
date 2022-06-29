@@ -622,73 +622,7 @@ public class XcodeTarget: Hashable, Equatable {
         let deps = self.transitiveTargets(map: self.targetMap, predicate:
                 linkablePredicate, force: true)
             .flatMap { xcodeTarget -> [ProjectSpec.Dependency] in
-                let projectConfig = xcodeTarget.genOptions.config
-                            .projects[genOptions.projectName]
-
-                let generateTransitiveXcodeTargets =
-                            (projectConfig?.generateTransitiveXcodeTargets ?? true)
-                guard generateTransitiveXcodeTargets else { return [] }
-
-                // Focus - XcodeSchemes are disabled, and the target is not
-                // included don't include it is a dependency.
-                // under workspace mode, the latter code uses an implicit dep.
-                let genOptions = self.genOptions
-                if xcodeTarget.genOptions.workspaceEnabled == false,
-                    (projectConfig?.generateXcodeSchemes ?? true) != true,
-                    includeTarget(xcodeTarget, pathPredicate:
-                        makePathFiltersPredicate(genOptions.pathsSet)) != true {
-                    return []
-                }
-
-                let pathsPredicate = makeOptionalPathFiltersPredicate(genOptions)
-                guard let linkableProductName =
-                    xcodeTarget.extractLinkableBuiltProductName(map:
-                            self.targetMap), includeTarget(xcodeTarget, pathPredicate:
-                        pathsPredicate) else {
-                    // either way, get the dependencies
-                    return xcodeTarget.xcDependencies
-                }
-
-                guard let productType = xcodeTarget.extractProductType() else { return xcodeTarget.xcDependencies }
-
-                switch productType {
-                // Do not link static libraries that aren't going to exist.
-                // These targets still need to be included in the project.
-                case .StaticLibrary, .DynamicLibrary:
-                    let compiledSrcs = (xcodeTarget.sourceFiles + xcodeTarget.nonARCSourceFiles)
-                        .filter {
-                       fileInfo in
-                       let path = fileInfo.subPath
-                       guard let suffix = path.components(separatedBy: ".").last else { return false }
-                       return XcodeTarget.librarySourceTypes.contains(suffix)
-                    }
-                    if compiledSrcs.count == 0 {
-                        return xcodeTarget.xcDependencies
-                    }
-                default:
-                    break
-                }
-
-                if xcodeTarget.genOptions.workspaceEnabled
-                        || xcodeTarget.type == "apple_static_framework_import"
-                        || xcodeTarget.type == "apple_dynamic_framework_import"
-                        || xcodeTarget.type == "ios_framework"
-                        || xcodeTarget.type == "objc_import" {
-                    // Dep's aren't really frameworks.
-                    // The idea here is to drop these deps in "Link With Libs"
-                    // phase, so that Xcode can implicitly resolve them
-                    return [ProjectSpec.Dependency(type: .framework, reference: linkableProductName,
-                            embed: xcodeTarget.isExtension)]
-                        + xcodeTarget.xcDependencies
-                } else {
-                    // For some target types ( e.g. Swift static libs on Xcode
-                    // 10.2 ) Xcode's implicit resolution doesn't seem to add a
-                    // dependency on the Swift module
-                    let productName = xcodeTarget.extractBuiltProductName()
-                    return [ProjectSpec.Dependency(type: .target, reference: productName,
-                            embed: xcodeTarget.isExtension)]
-                        + xcodeTarget.xcDependencies
-                }
+                xcodeTarget.projectSpecDeps
             }
         return Set(deps)
     }()
@@ -707,7 +641,78 @@ public class XcodeTarget: Hashable, Equatable {
         }
         return String(foundVFS)
     }
+    
+    private lazy var projectSpecDeps: [ProjectSpec.Dependency] = {
+        let xcodeTarget = self
+        let projectConfig = self.genOptions.config
+                    .projects[genOptions.projectName]
 
+        let generateTransitiveXcodeTargets =
+                    (projectConfig?.generateTransitiveXcodeTargets ?? true)
+        guard generateTransitiveXcodeTargets else { return [] }
+
+        // Focus - XcodeSchemes are disabled, and the target is not
+        // included don't include it is a dependency.
+        // under workspace mode, the latter code uses an implicit dep.
+        let genOptions = self.genOptions
+        if xcodeTarget.genOptions.workspaceEnabled == false,
+            (projectConfig?.generateXcodeSchemes ?? true) != true,
+            includeTarget(self, pathPredicate:
+                makePathFiltersPredicate(genOptions.pathsSet)) != true {
+            return []
+        }
+
+        let pathsPredicate = makeOptionalPathFiltersPredicate(genOptions)
+        guard let linkableProductName =
+            xcodeTarget.extractLinkableBuiltProductName(map:
+                    self.targetMap), includeTarget(xcodeTarget, pathPredicate:
+                pathsPredicate) else {
+            // either way, get the dependencies
+            return xcodeTarget.xcDependencies
+        }
+
+        guard let productType = xcodeTarget.extractProductType() else { return xcodeTarget.xcDependencies }
+
+        switch productType {
+        // Do not link static libraries that aren't going to exist.
+        // These targets still need to be included in the project.
+        case .StaticLibrary, .DynamicLibrary:
+            let compiledSrcs = (xcodeTarget.sourceFiles + xcodeTarget.nonARCSourceFiles)
+                .filter {
+               fileInfo in
+               let path = fileInfo.subPath
+               guard let suffix = path.components(separatedBy: ".").last else { return false }
+               return XcodeTarget.librarySourceTypes.contains(suffix)
+            }
+            if compiledSrcs.count == 0 {
+                return xcodeTarget.xcDependencies
+            }
+        default:
+            break
+        }
+
+        if xcodeTarget.genOptions.workspaceEnabled
+                || xcodeTarget.type == "apple_static_framework_import"
+                || xcodeTarget.type == "apple_dynamic_framework_import"
+                || xcodeTarget.type == "ios_framework"
+                || xcodeTarget.type == "objc_import" {
+            // Dep's aren't really frameworks.
+            // The idea here is to drop these deps in "Link With Libs"
+            // phase, so that Xcode can implicitly resolve them
+            return [ProjectSpec.Dependency(type: .framework, reference: linkableProductName,
+                    embed: xcodeTarget.isExtension)]
+                + xcodeTarget.xcDependencies
+        } else {
+            // For some target types ( e.g. Swift static libs on Xcode
+            // 10.2 ) Xcode's implicit resolution doesn't seem to add a
+            // dependency on the Swift module
+            let productName = xcodeTarget.extractBuiltProductName()
+            return [ProjectSpec.Dependency(type: .target, reference: productName,
+                    embed: xcodeTarget.isExtension)]
+                + xcodeTarget.xcDependencies
+        }
+    }()
+    
     lazy var settings: XCBuildSettings = {
         let targetMap = self.targetMap
         let genOptions = self.genOptions
