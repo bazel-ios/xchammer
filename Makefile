@@ -4,7 +4,7 @@ ROOT_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 
 PRODUCT := xchammer.app
 # This is fragile; even on arm64, it defaults to x86_64, and the path could easily change.
-XCHAMMER_APP := $(ROOT_DIR)/bazel-out/applebin_macos-darwin_x86_64-dbg-ST-639799358421/bin/xchammer.app
+XCHAMMER_APP := $(ROOT_DIR)/bazel-out/applebin_macos-darwin_x86_64-opt-ST-639799358421/bin/xchammer_archive-root/xchammer.app
 XCHAMMER_BIN := $(XCHAMMER_APP)/Contents/MacOS/xchammer
 
 PREFIX := /usr/local
