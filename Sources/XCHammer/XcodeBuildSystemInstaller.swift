@@ -35,7 +35,7 @@ enum XcodeBuildSystemInstaller {
         // Check each Xcode that's compatible with this version and verify if
         // it's installed
         var hasUnlinkedXcodes = false
-        let cmd = xcodeLocatorPath + " 2>&1 | grep expanded=11 | sed -e 's,.*file://,,g' -e 's,/:.*,,g'"
+        let cmd = xcodeLocatorPath + " 2>&1 | grep expanded=13 | sed -e 's,.*file://,,g' -e 's,/:.*,,g'"
         do {
             let resultsStr = try shellOut(to: cmd)
             // Returns an array of [/Path/To/Xcode.app/]
