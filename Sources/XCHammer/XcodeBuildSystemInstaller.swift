@@ -23,6 +23,9 @@ enum XcodeBuildSystemInstaller {
 
     static let servicePath =
             "/Contents/SharedFrameworks/XCBuild.framework/PlugIns/XCBBuildService.bundle/Contents/MacOS/XCBBuildService"
+
+    static let supportedXcodeVersions = ["11", "12", "13"]
+
     static func installIfNecessary() -> Result<(), CommandError> {
         let bundle = Bundle.main
         let buildkitBundlePath = bundle.path(forResource: "XCBuildKit", ofType: "bundle")!
@@ -35,11 +38,23 @@ enum XcodeBuildSystemInstaller {
         // Check each Xcode that's compatible with this version and verify if
         // it's installed
         var hasUnlinkedXcodes = false
-        let cmd = xcodeLocatorPath + " 2>&1 | grep expanded=11 | sed -e 's,.*file://,,g' -e 's,/:.*,,g'"
+
+        let xcodeLocatorCmd = xcodeLocatorPath + " 2>&1"
         do {
-            let resultsStr = try shellOut(to: cmd)
+            let xcodeLocatorOutput = try shellOut(to: xcodeLocatorCmd)
+            var allXcodes: String = ""
+            // Loop through supported Xcode versions and extract the path if present
+            for xcodeVersion in supportedXcodeVersions {
+                let xcodePathCmd = "printf '%s\n' \"\(xcodeLocatorOutput)\" | grep \"expanded=\(xcodeVersion)\" | sed -e 's,.*file://,,g' -e 's,/:.*,,g'"
+                let xcodePathOutput = try shellOut(to: xcodePathCmd)
+
+                if xcodePathOutput.count > 0 {
+                    allXcodes += "\n\(xcodePathOutput)"
+                }
+            }
+
             // Returns an array of [/Path/To/Xcode.app/]
-            let xcodes = resultsStr.split(separator: "\n")
+            let xcodes = allXcodes.split(separator: "\n")
             if xcodes.count == 0 {
                 print("warning: No Xcodes installed")
             }
