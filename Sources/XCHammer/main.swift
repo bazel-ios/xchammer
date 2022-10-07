@@ -311,6 +311,17 @@ struct InstallXcodeBuildSystemCommand: CommandProtocol {
     }
 }
 
+struct UninstallXcodeBuildSystemCommand: CommandProtocol {
+    let verb = "uninstall_xcode_build_system"
+    let function = "Uninstalls XCHammer's Xcode build system"
+
+    typealias Options = NoOptions<CommandError>
+
+    func run(_: Options) -> Result<(), CommandError> {
+        return XcodeBuildSystemInstaller.uninstallIfNecessary()
+    }
+}
+
 func main() {
     XCHammerLogger.initialize()
     let commands = CommandRegistry<CommandError>()
@@ -319,6 +330,7 @@ func main() {
     commands.register(ProcessIpaCommand())
     commands.register(InstallVFSCommand())
     commands.register(InstallXcodeBuildSystemCommand())
+    commands.register(UninstallXcodeBuildSystemCommand())
     commands.register(VersionCommand())
     commands.register(HelpCommand(registry: commands))
 
