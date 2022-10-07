@@ -74,6 +74,7 @@ enum XcodeBuildSystemInstaller {
             return .failure(.basic(error.localizedDescription))
         }
 
+        print("XCHammer build system uninstalled.")
         return .success(())
     }
 
