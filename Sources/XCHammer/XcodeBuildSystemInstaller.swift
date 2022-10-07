@@ -29,9 +29,7 @@ enum XcodeBuildSystemInstaller {
     static func installIfNecessary() -> Result<(), CommandError> {
         let bundle = Bundle.main
         let buildkitBundlePath = bundle.path(forResource: "XCBuildKit", ofType: "bundle")!
-        let xcodeLocatorPath =  buildkitBundlePath + "/xcode-locator"
         let installedAppDir = "/opt/XCBuildKit/XCBuildKit.app"
-        let installedBinPath =  installedAppDir + "/Contents/MacOS/BazelBuildService"
         let plistPath = buildkitBundlePath + "/BuildInfo.plist"
         let pkgVersion = getVersion(path: plistPath)
 
@@ -39,37 +37,8 @@ enum XcodeBuildSystemInstaller {
         // it's installed
         var hasUnlinkedXcodes = false
 
-        let xcodeLocatorCmd = xcodeLocatorPath + " 2>&1"
         do {
-            let xcodeLocatorOutput = try shellOut(to: xcodeLocatorCmd)
-            var allXcodes: String = ""
-            // Loop through supported Xcode versions and extract the path if present
-            for xcodeVersion in supportedXcodeVersions {
-                let xcodePathCmd = "printf '%s\n' \"\(xcodeLocatorOutput)\" | grep \"expanded=\(xcodeVersion)\" | sed -e 's,.*file://,,g' -e 's,/:.*,,g'"
-                let xcodePathOutput = try shellOut(to: xcodePathCmd)
-
-                if xcodePathOutput.count > 0 {
-                    allXcodes += "\n\(xcodePathOutput)"
-                }
-            }
-
-            // Returns an array of [/Path/To/Xcode.app/]
-            let xcodes = allXcodes.split(separator: "\n")
-            if xcodes.count == 0 {
-                print("warning: No Xcodes installed")
-            }
-            let needsInstalls = xcodes.filter {
-                xcode in
-                let bsPath = String(xcode + servicePath)
-                guard let link = try? FileManager.default.destinationOfSymbolicLink(atPath: bsPath) else {
-                   return true
-                }
-                guard link == installedBinPath else {
-                    return true
-                }
-                return false
-            }
-            hasUnlinkedXcodes = needsInstalls.count > 0
+            hasUnlinkedXcodes = try getXcodes(withBuildSystemInstalled: false).count > 0
         } catch {
             return .failure(.basic(error.localizedDescription))
         }
@@ -83,6 +52,37 @@ enum XcodeBuildSystemInstaller {
                 return .failure(.basic("failed to install. please see /var/log/install.log for more info"))
             }
         }
+        return .success(())
+    }
+
+    static func uninstallIfNecessary() -> Result<(), CommandError> {
+        do {
+            let needsUninstalls = try getXcodes(withBuildSystemInstalled: true)
+
+            for xcode in needsUninstalls {
+                let defaultBsTempPath = String(xcode + servicePath + ".default")
+                let defaultBsOriginalPath = String(xcode + servicePath)
+
+                guard FileManager.default.fileExists(atPath: defaultBsTempPath) else {
+                    return .failure(.basic("Default build system not found at temporary path: \(defaultBsTempPath)"))
+                }
+
+                if let _ = try? FileManager.default.destinationOfSymbolicLink(atPath: defaultBsOriginalPath) {
+                    try FileManager.default.removeItem(atPath: defaultBsOriginalPath)
+                } else {
+                    print("warning: symlink to XCHammer build system not found at path: \(defaultBsOriginalPath)")
+                }
+
+                guard FileManager.default.fileExists(atPath: defaultBsTempPath) else {
+                    return .failure(.basic("error: original XCBBuildService build service not found at path '\(defaultBsTempPath)'. Check your Xcode installation."))
+                }
+                try FileManager.default.moveItem(atPath: defaultBsTempPath, toPath: defaultBsOriginalPath)
+            }
+        } catch {
+            return .failure(.basic(error.localizedDescription))
+        }
+
+        print("XCHammer build system uninstalled.")
         return .success(())
     }
 
@@ -100,6 +100,48 @@ enum XcodeBuildSystemInstaller {
         // self, or the repository_rule that defined it.
         // https://github.com/jerrymarino/xcbuildkit/blob/master/BUILD#L101
         return plistData["BUILD_COMMIT"] as? String
+    }
+
+    private static func getXcodes(withBuildSystemInstalled filterInstalled: Bool) throws -> [String] {
+        let bundle = Bundle.main
+        let buildkitBundlePath = bundle.path(forResource: "XCBuildKit", ofType: "bundle")!
+        let xcodeLocatorPath =  buildkitBundlePath + "/xcode-locator"
+        let installedAppDir = "/opt/XCBuildKit/XCBuildKit.app"
+        let installedBinPath =  installedAppDir + "/Contents/MacOS/BazelBuildService"
+
+        let xcodeLocatorCmd = xcodeLocatorPath + " 2>&1"
+        let xcodeLocatorOutput = try shellOut(to: xcodeLocatorCmd)
+        var allXcodes: String = ""
+        // Loop through supported Xcode versions and extract the path if present
+        for xcodeVersion in supportedXcodeVersions {
+            let xcodePathCmd = "printf '%s\n' \"\(xcodeLocatorOutput)\" | grep \"expanded=\(xcodeVersion)\" | sed -e 's,.*file://,,g' -e 's,/:.*,,g'"
+            let xcodePathOutput = try shellOut(to: xcodePathCmd)
+
+            if xcodePathOutput.count > 0 {
+                allXcodes += "\n\(xcodePathOutput)"
+            }
+        }
+
+        // Returns an array of [/Path/To/Xcode.app/]
+        let xcodes = allXcodes.split(separator: "\n").map { String($0) }
+        guard xcodes.count > 0 else {
+            print("warning: No Xcodes installed")
+            return []
+        }
+
+        // Based on what was requested in `filterInstalled` returns Xcodes with build system installed or Xcodes
+        // with build system not installed. See usage in `installIfNecessary` and `uninstallIfNecessary` above.
+        return xcodes.filter {
+            xcode in
+            let bsPath = String(xcode + servicePath)
+            guard let link = try? FileManager.default.destinationOfSymbolicLink(atPath: bsPath) else {
+                return filterInstalled ? false : true
+            }
+            guard link == installedBinPath else {
+                return filterInstalled ? false : true
+            }
+            return filterInstalled ? true : false
+        }
     }
 }
 
