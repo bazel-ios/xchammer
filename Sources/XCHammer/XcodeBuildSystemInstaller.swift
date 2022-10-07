@@ -67,7 +67,15 @@ enum XcodeBuildSystemInstaller {
                     return .failure(.basic("Default build system not found at temporary path: \(defaultBsTempPath)"))
                 }
 
-                try FileManager.default.removeItem(atPath: defaultBsOriginalPath)
+                if let _ = try? FileManager.default.destinationOfSymbolicLink(atPath: defaultBsOriginalPath) {
+                    try FileManager.default.removeItem(atPath: defaultBsOriginalPath)
+                } else {
+                    print("warning: symlink to XCHammer build system not found at path: \(defaultBsOriginalPath)")
+                }
+
+                guard FileManager.default.fileExists(atPath: defaultBsTempPath) else {
+                    return .failure(.basic("error: original XCBBuildService build service not found at path '\(defaultBsTempPath)'. Check your Xcode installation."))
+                }
                 try FileManager.default.moveItem(atPath: defaultBsTempPath, toPath: defaultBsOriginalPath)
             }
         } catch {
