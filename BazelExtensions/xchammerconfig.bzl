@@ -66,3 +66,8 @@ def xchammer_config(
         projects,  # [String: XCHammerProjectConfig]
         target_config = None):  # [String: XCHammerTargetConfig]?
     return struct(targets = targets, targetConfig = target_config, projects = projects)
+
+def build_service_config(
+        enable_indexing = False,  # Bool
+        relative_index_store_path = None):  # String?
+    return struct(enableIndexing = enable_indexing, relativeIndexStorePath = relative_index_store_path)

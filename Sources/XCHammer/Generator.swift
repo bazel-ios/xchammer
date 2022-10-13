@@ -88,7 +88,9 @@ enum Generator {
         let overrides = getRepositoryOverrides(genOptions: genOptions)
         let bazelArgs: [String] = [
             "--aspects @xchammer//:BazelExtensions/xcode_configuration_provider.bzl%pure_xcode_build_sources_aspect",
-            "--output_groups=xcode_project_deps"
+            "--output_groups=xcode_project_deps",
+            "--aspects @xchammer//:BazelExtensions/source_output_file_map_aspect.bzl%source_output_file_map_aspect",
+            "--output_groups=+source_output_file_map",
         ] + overrides + labels.map { $0.value }
 
         // We retry.sh the bazel command so if Xcode updates, the build still works
@@ -430,7 +432,9 @@ enum Generator {
             ] + overrides + [
                 // Build xcode_project_deps for targets in question.
                 "--aspects @xchammer//:BazelExtensions/xcode_configuration_provider.bzl%xcode_build_sources_aspect",
-                "--output_groups=+xcode_project_deps"
+                "--output_groups=+xcode_project_deps",
+                "--aspects @xchammer//:BazelExtensions/source_output_file_map_aspect.bzl%source_output_file_map_aspect",
+                "--output_groups=+source_output_file_map",
             ]
 
             let buildOptions = (targetConfig?.buildBazelOptions ?? "") + " " +

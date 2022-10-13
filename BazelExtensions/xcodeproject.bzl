@@ -9,7 +9,8 @@ load(
     "@xchammer//:BazelExtensions/xchammerconfig.bzl",
     "xchammer_config",
     "gen_xchammer_config",
-    "project_config"
+    "project_config",
+    "build_service_config",
 )
 
 load(
@@ -146,7 +147,6 @@ def _xcode_project_impl(ctx):
         execution_requirements = { "local": "1" }
     )
 
-
 _xcode_project = rule(
     implementation=_xcode_project_impl,
     attrs={
@@ -169,6 +169,16 @@ get_srcroot = "\"$(cat ../../DO_NOT_BUILD_HERE)/\""
 def _install_xcode_project_impl(ctx):
     xcodeproj = ctx.attr.xcodeproj.files.to_list()[0]
     output_proj = "$SRCROOT/" + xcodeproj.basename
+
+    build_service_config = (
+        ctx.attr.build_service_config
+        if ctx.attr.build_service_config
+        else build_service_config().to_json()
+    )
+    build_service_config = json.decode(build_service_config)
+    enable_indexing = build_service_config.get("enableIndexing", False)
+    relative_index_store_path = build_service_config.get("relativeIndexStorePath", None)
+
     command = [
         "SRCROOT=" + get_srcroot,
         "ditto " + xcodeproj.path + " " + output_proj,
@@ -185,6 +195,14 @@ def _install_xcode_project_impl(ctx):
         "(rm -f $SRCROOT/external && ln -sf $PWD/../../external $SRCROOT/external)",
         'echo "' + output_proj + '" > ' + ctx.outputs.out.path,
     ]
+
+    if enable_indexing and relative_index_store_path:
+        command.extend([
+            "DD=$(xcodebuild -project " + output_proj + " -showBuildSettings 2>&1 | grep -e \"^\\s*BUILT_PRODUCTS_DIR = \" | cut -d'=' -f2 | xargs | sed -e 's/\\/Build.*//g')",
+            'mv $DD/Index/DataStore $DD/Index/DataStore.default || true',
+            "mkdir -p '$SRCROOT{}'".format(relative_index_store_path),
+            "ln -s $(echo $SRCROOT){} $DD/Index/DataStore".format(relative_index_store_path),
+        ])
     ctx.actions.run_shell(
         inputs=ctx.attr.xcodeproj.files,
         command=";".join(command),
@@ -196,7 +214,10 @@ def _install_xcode_project_impl(ctx):
 
 _install_xcode_project = rule(
     implementation=_install_xcode_project_impl,
-    attrs={"xcodeproj": attr.label(mandatory=True)},
+    attrs={
+        "xcodeproj": attr.label(mandatory=True),
+        "build_service_config": attr.string(),
+    },
     outputs={"out": "%{name}.dummy"},
 )
 
@@ -236,7 +257,11 @@ def xcode_project(**kwargs):
         proj_args["target_config"] =  "{}"
 
     proj_args["name"] = rule_name + "_impl"
-    proj_args["project_config"] = proj_args["project_config"].to_json() if "project_config" in  proj_args else None
+    proj_args["project_config"] = proj_args["project_config"].to_json() if "project_config" in proj_args else None
+
+    # For now pop to use in '_install_xcode_project', we might end up using this in the
+    # _xcode_project impl later on
+    build_service_config = proj_args.pop("build_service_config").to_json() if "build_service_config" in proj_args else None
 
     _xcode_project(**proj_args)
 
@@ -246,4 +271,5 @@ def xcode_project(**kwargs):
         name=rule_name,
         xcodeproj=kwargs["name"],
         testonly=proj_args.get("testonly", False),
+        build_service_config = build_service_config,
     )
