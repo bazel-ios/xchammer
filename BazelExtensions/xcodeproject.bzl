@@ -10,7 +10,7 @@ load(
     "xchammer_config",
     "gen_xchammer_config",
     "project_config",
-    "build_service_config",
+    "bazel_build_service_config",
 )
 
 load(
@@ -157,6 +157,7 @@ _xcode_project = rule(
         "bazel": attr.string(default="bazel"),
         "target_config": attr.string(default="{}"),
         "project_config": attr.string(),
+        "bazel_build_service_config": attr.string(),
         "xchammer": attr.label(mandatory=False,default="@xchammer//:xchammer"),
     },
     outputs={"out": "%{project_name}.xcodeproj"},
@@ -169,15 +170,6 @@ get_srcroot = "\"$(cat ../../DO_NOT_BUILD_HERE)/\""
 def _install_xcode_project_impl(ctx):
     xcodeproj = ctx.attr.xcodeproj.files.to_list()[0]
     output_proj = "$SRCROOT/" + xcodeproj.basename
-
-    build_service_config = (
-        ctx.attr.build_service_config
-        if ctx.attr.build_service_config
-        else build_service_config().to_json()
-    )
-    build_service_config = json.decode(build_service_config)
-    enable_indexing = build_service_config.get("enableIndexing", False)
-    relative_index_store_path = build_service_config.get("relativeIndexStorePath", None)
 
     command = [
         "SRCROOT=" + get_srcroot,
@@ -196,13 +188,6 @@ def _install_xcode_project_impl(ctx):
         'echo "' + output_proj + '" > ' + ctx.outputs.out.path,
     ]
 
-    if enable_indexing and relative_index_store_path:
-        command.extend([
-            "DD=$(xcodebuild -project " + output_proj + " -showBuildSettings 2>&1 | grep -e \"^\\s*BUILT_PRODUCTS_DIR = \" | cut -d'=' -f2 | xargs | sed -e 's/\\/Build.*//g')",
-            'mv $DD/Index/DataStore $DD/Index/DataStore.default || true',
-            "mkdir -p '$SRCROOT{}'".format(relative_index_store_path),
-            "ln -s $(echo $SRCROOT){} $DD/Index/DataStore".format(relative_index_store_path),
-        ])
     ctx.actions.run_shell(
         inputs=ctx.attr.xcodeproj.files,
         command=";".join(command),
@@ -216,11 +201,21 @@ _install_xcode_project = rule(
     implementation=_install_xcode_project_impl,
     attrs={
         "xcodeproj": attr.label(mandatory=True),
-        "build_service_config": attr.string(),
+        "bazel_build_service_config": attr.string(),
     },
     outputs={"out": "%{name}.dummy"},
 )
 
+def _bazel_build_service_config_json(**kwargs):
+    """
+    Foo
+    """
+    json = None
+    if "project_config" in kwargs:
+        if hasattr(kwargs["project_config"], "bazelBuildServiceConfig"):
+            if kwargs["project_config"].bazelBuildServiceConfig:
+                json = kwargs["project_config"].bazelBuildServiceConfig.to_json()
+    return json
 
 def xcode_project(**kwargs):
     """ Generate an Xcode project
@@ -240,13 +235,13 @@ def xcode_project(**kwargs):
     project_config: (optional) struct(target_config)
     """
     proj_args = kwargs
+    bazel_build_service_config = _bazel_build_service_config_json(**kwargs)
     rule_name = kwargs["name"]
 
     if not kwargs.get("project_name"):
         proj_args["project_name"] = kwargs["name"]
 
     # Build an XCHammer config Based on inputs
-    targets_json = [str(t) for t in kwargs.get("targets")]
     if "target_config" in  proj_args:
         str_dict = {}
         for k in proj_args["target_config"]:
@@ -259,10 +254,6 @@ def xcode_project(**kwargs):
     proj_args["name"] = rule_name + "_impl"
     proj_args["project_config"] = proj_args["project_config"].to_json() if "project_config" in proj_args else None
 
-    # For now pop to use in '_install_xcode_project', we might end up using this in the
-    # _xcode_project impl later on
-    build_service_config = proj_args.pop("build_service_config").to_json() if "build_service_config" in proj_args else None
-
     _xcode_project(**proj_args)
 
     # Note: _xcode_project does the hermetic, reproducible bits
@@ -271,5 +262,6 @@ def xcode_project(**kwargs):
         name=rule_name,
         xcodeproj=kwargs["name"],
         testonly=proj_args.get("testonly", False),
-        build_service_config = build_service_config,
+        # bazel_build_service_config = bazel_build_service_config,
+        bazel_build_service_config = None,
     )

@@ -62,5 +62,9 @@ struct XCHammerGenerateOptions {
     var projectConfig: XCHammerProjectConfig? {
         return config.projects[projectName]
     }
+
+    var bazelBuildServiceConfig: XCHammerProjectConfig? {
+        return config.projects[projectName]
+    }
 }
 
