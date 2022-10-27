@@ -185,6 +185,12 @@ enum XCSettingCodingKey: String, CodingKey {
     case sdkRoot = "SDKROOT"
     case targetedDeviceFamily = "TARGETED_DEVICE_FAMILY"
     
+    // Build Service configs (xcbuildkit)
+    case buildServiceBEPPath = "BUILD_SERVICE_BEP_PATH"
+    case buildServiceIndexingEnabled = "BUILD_SERVICE_INDEXING_ENABLED"
+    case buildServiceIndexStorePath = "BUILD_SERVICE_INDEX_STORE_PATH"
+    case buildServiceIndexingDataDir = "BUILD_SERVICE_INDEXING_DATA_DIR"
+    case buildServiceProgressBarEnabled = "BUILD_SERVICE_PROGRESS_BAR_ENABLED"
 }
 
 
@@ -237,6 +243,11 @@ struct XCBuildSettings: Encodable {
     var targetedDeviceFamily: OrderedArray<String> = OrderedArray.empty
     var isBazel: First<String> = First("NO")
     var diagnosticFlags: [String] = []
+    var buildServiceBEPPath: First<String>?
+    var buildServiceIndexingEnabled: First<String>?
+    var buildServiceIndexStorePath: First<String>?
+    var buildServiceIndexingDataDir: First<String>?
+    var buildServiceProgressBarEnabled: First<String>?
 
 
     func encode(to encoder: Encoder) throws {
@@ -309,6 +320,13 @@ struct XCBuildSettings: Encodable {
         // XCHammer only supports Xcode projects at the root directory
         try container.encode("$SOURCE_ROOT", forKey: .tulsiWR)
         try container.encode(diagnosticFlags.joined(separator: " "), forKey: .diagnosticFlags)
+
+        // Build Service (xcbuildkit)
+        try buildServiceBEPPath.map { try container.encode($0.v, forKey: .buildServiceBEPPath) }
+        try buildServiceIndexingEnabled.map { try container.encode($0.v, forKey: .buildServiceIndexingEnabled) }
+        try buildServiceIndexStorePath.map { try container.encode($0.v, forKey: .buildServiceIndexStorePath) }
+        try buildServiceIndexingDataDir.map { try container.encode($0.v, forKey: .buildServiceIndexingDataDir) }
+        try buildServiceProgressBarEnabled.map { try container.encode($0.v, forKey: .buildServiceProgressBarEnabled) }
     }
 }
 
@@ -366,7 +384,12 @@ extension XCBuildSettings: Monoid {
             targetedDeviceFamily: lhs.targetedDeviceFamily <>
                 rhs.targetedDeviceFamily,
             isBazel: lhs.isBazel <> rhs.isBazel,
-            diagnosticFlags: lhs.diagnosticFlags <> rhs.diagnosticFlags
+            diagnosticFlags: lhs.diagnosticFlags <> rhs.diagnosticFlags,
+            buildServiceBEPPath: lhs.buildServiceBEPPath <> rhs.buildServiceBEPPath,
+            buildServiceIndexingEnabled: lhs.buildServiceIndexingEnabled <> rhs.buildServiceIndexingEnabled,
+            buildServiceIndexStorePath: lhs.buildServiceIndexStorePath <> rhs.buildServiceIndexStorePath,
+            buildServiceIndexingDataDir: lhs.buildServiceIndexingDataDir <> rhs.buildServiceIndexingDataDir,
+            buildServiceProgressBarEnabled: lhs.buildServiceProgressBarEnabled <> rhs.buildServiceProgressBarEnabled
         )
     }
 
