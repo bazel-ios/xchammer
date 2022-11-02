@@ -80,6 +80,9 @@ fi
 
 # If there's an existing DataStore create a backup before symlink-ing
 if [[ -d $INDEX_DATA_STORE ]]; then
+    if [[ -d $INDEX_DATA_STORE_BACKUP ]]; then
+        rm -fr $INDEX_DATA_STORE_BACKUP
+    fi
     mv $INDEX_DATA_STORE $INDEX_DATA_STORE_BACKUP
 fi
 
