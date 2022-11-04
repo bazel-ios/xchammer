@@ -56,13 +56,22 @@ def target_config(
 def project_config(
         paths,  # [String]?
         build_bazel_platform_options = None,  # [String: [String]]?
+        bazel_build_service_config = None, # [String: XCHammerTargetConfig]?
         generate_transitive_xcode_targets = None,  # Bool
         generate_xcode_schemes = None,  # Bool
         xcconfig_overrides = None):  # : [String: String]?
-    return struct(paths = paths, buildBazelPlatformOptions = build_bazel_platform_options, generateTransitiveXcodeTargets = generate_transitive_xcode_targets, generateXcodeSchemes = generate_xcode_schemes, xcconfigOverrides = xcconfig_overrides)
+    return struct(paths = paths, buildBazelPlatformOptions = build_bazel_platform_options, bazelBuildServiceConfig = bazel_build_service_config, generateTransitiveXcodeTargets = generate_transitive_xcode_targets, generateXcodeSchemes = generate_xcode_schemes, xcconfigOverrides = xcconfig_overrides)
 
 def xchammer_config(
         targets,  # [String]
         projects,  # [String: XCHammerProjectConfig]
         target_config = None):  # [String: XCHammerTargetConfig]?
     return struct(targets = targets, targetConfig = target_config, projects = projects)
+
+def bazel_build_service_config(
+        bep_path = None, # String?
+        indexing_enabled = False, # Bool
+        index_store_path = None, # String?
+        indexing_data_dir = None, # String?
+        progress_bar_enabled = False): # Bool
+    return struct(bepPath = bep_path, indexingEnabled = indexing_enabled, indexStorePath = index_store_path, indexingDataDir = indexing_data_dir, progressBarEnabled = progress_bar_enabled)

@@ -9,7 +9,7 @@ load(
     "@xchammer//:BazelExtensions/xchammerconfig.bzl",
     "xchammer_config",
     "gen_xchammer_config",
-    "project_config"
+    "project_config",
 )
 
 load(
@@ -17,8 +17,8 @@ load(
     "XcodeProjectTargetInfo",
     "XcodeConfigurationAspectInfo",
     "target_config_aspect",
-    "xcode_build_sources_aspect",
     "XcodeBuildSourceInfo",
+    "SourceOutputFileMapInfo",
 )
 
 non_hermetic_execution_requirements = { "no-cache": "1", "no-remote": "1", "local": "1", "no-sandbox": "1" }
@@ -41,6 +41,7 @@ def _xcode_project_impl(ctx):
     # Collect Target configuration JSON from deps
     # Then, merge them to a list
     aggregate_target_config = {}
+
     for dep in ctx.attr.targets:
         if XcodeConfigurationAspectInfo in dep:
             for info in dep[XcodeConfigurationAspectInfo].values:
@@ -146,12 +147,11 @@ def _xcode_project_impl(ctx):
         execution_requirements = { "local": "1" }
     )
 
-
 _xcode_project = rule(
     implementation=_xcode_project_impl,
     attrs={
         "targets": attr.label_list(
-            aspects=[tulsi_sources_aspect, target_config_aspect]
+            aspects=[tulsi_sources_aspect, target_config_aspect],
         ),
         "project_name": attr.string(),
         "bazel": attr.string(default="bazel"),
@@ -169,11 +169,13 @@ get_srcroot = "\"$(cat ../../DO_NOT_BUILD_HERE)/\""
 def _install_xcode_project_impl(ctx):
     xcodeproj = ctx.attr.xcodeproj.files.to_list()[0]
     output_proj = "$SRCROOT/" + xcodeproj.basename
+
     command = [
         "SRCROOT=" + get_srcroot,
         "ditto " + xcodeproj.path + " " + output_proj,
         "sed -i '' \"s,__BAZEL_EXEC_ROOT__,$PWD,g\" " + output_proj + "/XCHammerAssets/bazel_build_settings.py",
         "sed -i '' \"s,__BAZEL_OUTPUT_BASE__,$(dirname $(dirname $PWD)),g\" " + output_proj + "/XCHammerAssets/bazel_build_settings.py",
+        "sed -i '' \"s,__BAZEL_EXEC_ROOT__,$PWD,g\" " + output_proj + "/XCHammerAssets/bazel_build_service_setup.sh",
         # This is kind of a hack for reference bazel relative to the source
         # directory, as bazel_build_settings.py doesn't sub Xcode build
         # settings.
@@ -185,6 +187,7 @@ def _install_xcode_project_impl(ctx):
         "(rm -f $SRCROOT/external && ln -sf $PWD/../../external $SRCROOT/external)",
         'echo "' + output_proj + '" > ' + ctx.outputs.out.path,
     ]
+
     ctx.actions.run_shell(
         inputs=ctx.attr.xcodeproj.files,
         command=";".join(command),
@@ -196,10 +199,11 @@ def _install_xcode_project_impl(ctx):
 
 _install_xcode_project = rule(
     implementation=_install_xcode_project_impl,
-    attrs={"xcodeproj": attr.label(mandatory=True)},
+    attrs={
+        "xcodeproj": attr.label(mandatory=True),
+    },
     outputs={"out": "%{name}.dummy"},
 )
-
 
 def xcode_project(**kwargs):
     """ Generate an Xcode project
@@ -225,7 +229,6 @@ def xcode_project(**kwargs):
         proj_args["project_name"] = kwargs["name"]
 
     # Build an XCHammer config Based on inputs
-    targets_json = [str(t) for t in kwargs.get("targets")]
     if "target_config" in  proj_args:
         str_dict = {}
         for k in proj_args["target_config"]:
@@ -236,7 +239,7 @@ def xcode_project(**kwargs):
         proj_args["target_config"] =  "{}"
 
     proj_args["name"] = rule_name + "_impl"
-    proj_args["project_config"] = proj_args["project_config"].to_json() if "project_config" in  proj_args else None
+    proj_args["project_config"] = proj_args["project_config"].to_json() if "project_config" in proj_args else None
 
     _xcode_project(**proj_args)
 
