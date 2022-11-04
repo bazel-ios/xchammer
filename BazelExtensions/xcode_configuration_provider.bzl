@@ -211,14 +211,14 @@ def _source_output_file_map(target, ctx):
         # Collect generated JSON files from deps
         if OutputGroupInfo in dep:
             if hasattr(dep[OutputGroupInfo], "source_output_file_map"):
-                transitive_jsons.extend(dep[OutputGroupInfo].source_output_file_map.to_list())
+                transitive_jsons.append(dep[OutputGroupInfo].source_output_file_map)
 
     # Writes JSON
     ctx.actions.write(source_output_file_map, json.encode(mapping))
 
     return [
         OutputGroupInfo(
-            source_output_file_map = depset([source_output_file_map] + transitive_jsons),
+            source_output_file_map = depset([source_output_file_map], transitive = transitive_jsons),
         ),
         SourceOutputFileMapInfo(
             mapping = mapping
