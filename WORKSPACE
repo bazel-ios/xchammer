@@ -67,7 +67,7 @@ xchammer_dependencies()
 # https://github.com/bazelbuild/bazel/issues/1550
 git_repository(
     name = "xcbuildkit",
-    commit = "a03d9c7c5efb961b317f5efb95cbfcf7471b683e",
+    commit = "1eb4ed9f2026b35cece333308ba9623acede90f3",
     remote = "https://github.com/jerrymarino/xcbuildkit.git",
 )
 
