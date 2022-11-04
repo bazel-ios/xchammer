@@ -178,7 +178,7 @@ def _source_output_file_map(target, ctx):
             for source_file in ctx.rule.attr.srcs
             for f in source_file.files.to_list()
             # Handling objc only for now
-            if f.path.endswith(".m")
+            if f.path.endswith((".m", ".mm", ".c", ".cc", ".cpp"))
             # TODO: handle swift
         ]
 
