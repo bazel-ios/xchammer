@@ -10,6 +10,7 @@ load(
     "xchammer_config",
     "gen_xchammer_config",
     "project_config",
+    "bazel_build_service_config"
 )
 
 load(
@@ -166,6 +167,14 @@ _xcode_project = rule(
 # https://github.com/bazelbuild/bazel/blob/master/src/main/java/com/google/devtools/build/lib/runtime/BlazeWorkspace.java#L298
 get_srcroot = "\"$(cat ../../DO_NOT_BUILD_HERE)/\""
 
+def _xcbuildkit_config_value(bazel_build_service_config_json, key, default_value, is_bool = False):
+    if not key in bazel_build_service_config_json:
+        return default_value
+    if not is_bool:
+        return bazel_build_service_config_json[key]
+
+    return "YES" if bazel_build_service_config_json[key] else "NO"
+
 def _install_xcode_project_impl(ctx):
     xcodeproj = ctx.attr.xcodeproj.files.to_list()[0]
     output_proj = "$SRCROOT/" + xcodeproj.basename
@@ -175,7 +184,6 @@ def _install_xcode_project_impl(ctx):
         "ditto " + xcodeproj.path + " " + output_proj,
         "sed -i '' \"s,__BAZEL_EXEC_ROOT__,$PWD,g\" " + output_proj + "/XCHammerAssets/bazel_build_settings.py",
         "sed -i '' \"s,__BAZEL_OUTPUT_BASE__,$(dirname $(dirname $PWD)),g\" " + output_proj + "/XCHammerAssets/bazel_build_settings.py",
-        "sed -i '' \"s,__BAZEL_EXEC_ROOT__,$PWD,g\" " + output_proj + "/XCHammerAssets/bazel_build_service_setup.sh",
         # This is kind of a hack for reference bazel relative to the source
         # directory, as bazel_build_settings.py doesn't sub Xcode build
         # settings.
@@ -187,6 +195,40 @@ def _install_xcode_project_impl(ctx):
         "(rm -f $SRCROOT/external && ln -sf $PWD/../../external $SRCROOT/external)",
         'echo "' + output_proj + '" > ' + ctx.outputs.out.path,
     ]
+
+    if ctx.attr.bazel_build_service_config:
+        # Same default values as xcbuildkit
+        xcbuildkit_config_path = output_proj + "/xcbuildkit.config"
+        xcbuildkit_default_indexing_data_dir = "/tmp/xcbuildkit-data/indexing"
+        xcbuildkit_default_bep_path = "/tmp/bep.bep"
+
+        # Decode user provided config
+        bazel_build_service_config_json = json.decode(ctx.attr.bazel_build_service_config)
+
+        # Create xcbuildkit config file and make sure `indexingDataDir` also exists
+        command += [
+            "touch " + xcbuildkit_config_path,
+            "mkdir -p " + bazel_build_service_config_json.get("indexingDataDir", xcbuildkit_default_indexing_data_dir),
+            """
+cat >{xcbuildkit_config_path} <<EOL
+BUILD_SERVICE_INDEXING_ENABLED={build_service_indexing_enabled}
+BUILD_SERVICE_INDEX_STORE_PATH={build_service_index_store_path}
+BUILD_SERVICE_INDEXING_DATA_DIR={build_service_indexing_data_dir}
+BUILD_SERVICE_PROGRESS_BAR_ENABLED={build_service_progress_bar_enabled}
+BUILD_SERVICE_BEP_PATH={build_service_bep_path}
+BUILD_SERVICE_BAZEL_EXEC_ROOT=$PWD
+BUILD_SERVICE_SOURCE_OUTPUT_FILE_MAP_SUFFIX={build_service_output_file_map_suffix}
+EOL
+            """.format(
+                xcbuildkit_config_path = xcbuildkit_config_path,
+                build_service_indexing_enabled = _xcbuildkit_config_value(bazel_build_service_config_json, "indexingEnabled", "NO", True),
+                build_service_index_store_path = _xcbuildkit_config_value(bazel_build_service_config_json, "indexStorePath", ""),
+                build_service_indexing_data_dir = _xcbuildkit_config_value(bazel_build_service_config_json, "indexingDataDir", xcbuildkit_default_indexing_data_dir),
+                build_service_progress_bar_enabled = _xcbuildkit_config_value(bazel_build_service_config_json, "progressBarEnabled", "NO", True),
+                build_service_bep_path = _xcbuildkit_config_value(bazel_build_service_config_json, "bepPath", xcbuildkit_default_bep_path),
+                build_service_output_file_map_suffix = "source_output_file_map.json",
+            ),
+        ]
 
     ctx.actions.run_shell(
         inputs=ctx.attr.xcodeproj.files,
@@ -201,9 +243,18 @@ _install_xcode_project = rule(
     implementation=_install_xcode_project_impl,
     attrs={
         "xcodeproj": attr.label(mandatory=True),
+        "bazel_build_service_config": attr.string(),
     },
     outputs={"out": "%{name}.dummy"},
 )
+
+def _bazel_build_service_config_json(proj_args):
+    config_json = None
+    if "bazel_build_service_config" in proj_args:
+        bazel_build_service_config = proj_args.pop("bazel_build_service_config", None)
+        if bazel_build_service_config:
+            config_json = bazel_build_service_config.to_json()
+    return config_json
 
 def xcode_project(**kwargs):
     """ Generate an Xcode project
@@ -223,6 +274,7 @@ def xcode_project(**kwargs):
     project_config: (optional) struct(target_config)
     """
     proj_args = kwargs
+    bazel_build_service_config = _bazel_build_service_config_json(proj_args)
     rule_name = kwargs["name"]
 
     if not kwargs.get("project_name"):
@@ -249,4 +301,5 @@ def xcode_project(**kwargs):
         name=rule_name,
         xcodeproj=kwargs["name"],
         testonly=proj_args.get("testonly", False),
+        bazel_build_service_config = bazel_build_service_config,
     )

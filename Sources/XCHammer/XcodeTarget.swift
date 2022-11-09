@@ -1499,17 +1499,8 @@ public class XcodeTarget: Hashable, Equatable {
         settings.pythonPath =
             First("${PYTHONPATH}:$(PROJECT_FILE_PATH)/XCHammerAssets")
         settings <>= getDeploymentTargetSettings()
-        // Build Service configs (xcbuildkit)
-        if let bazelBuildServiceConfig = genOptions.config.projects[genOptions.projectName]?.bazelBuildServiceConfig {
-            settings.buildServiceBEPPath = First(bazelBuildServiceConfig.bepPath ?? "")
-            settings.buildServiceIndexingEnabled = First(bazelBuildServiceConfig.indexingEnabled ? "YES" : "NO")
-            settings.buildServiceIndexStorePath = First(bazelBuildServiceConfig.indexStorePath ?? "")
-            settings.buildServiceIndexingDataDir = First(bazelBuildServiceConfig.indexingDataDir ?? "")
-            settings.buildServiceProgressBarEnabled = First(bazelBuildServiceConfig.progressBarEnabled ? "YES" : "NO")
-        }
 
         let bazelScript = ProjectSpec.BuildScript(path: nil, script: getScriptContent(), name: "Bazel build")
-        let buildServiceSetupScript = ProjectSpec.BuildScript(path: nil, script: "$PROJECT_FILE_PATH/XCHammerAssets/bazel_build_service_setup.sh", name: "Build Service Setup")
 
         return ProjectSpec.Target(
             name: xcTargetName,
@@ -1519,7 +1510,6 @@ public class XcodeTarget: Hashable, Equatable {
             configFiles: getXCConfigFiles(for: self),
             sources: sources,
             dependencies: [],
-            preBuildScripts: [buildServiceSetupScript],
             postBuildScripts: [bazelScript]
         )
     }
