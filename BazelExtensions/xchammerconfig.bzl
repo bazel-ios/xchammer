@@ -56,11 +56,10 @@ def target_config(
 def project_config(
         paths,  # [String]?
         build_bazel_platform_options = None,  # [String: [String]]?
-        bazel_build_service_config = None, # [String: XCHammerTargetConfig]?
         generate_transitive_xcode_targets = None,  # Bool
         generate_xcode_schemes = None,  # Bool
         xcconfig_overrides = None):  # : [String: String]?
-    return struct(paths = paths, buildBazelPlatformOptions = build_bazel_platform_options, bazelBuildServiceConfig = bazel_build_service_config, generateTransitiveXcodeTargets = generate_transitive_xcode_targets, generateXcodeSchemes = generate_xcode_schemes, xcconfigOverrides = xcconfig_overrides)
+    return struct(paths = paths, buildBazelPlatformOptions = build_bazel_platform_options, generateTransitiveXcodeTargets = generate_transitive_xcode_targets, generateXcodeSchemes = generate_xcode_schemes, xcconfigOverrides = xcconfig_overrides)
 
 def xchammer_config(
         targets,  # [String]

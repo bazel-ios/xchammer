@@ -137,9 +137,6 @@ public struct XCHammerProjectConfig: Codable {
     /// serialized. Spaces and escapes matter.
     public let buildBazelPlatformOptions: [String: [String]]?
 
-    /// Allows one to configure and pass information to the Build Service
-    public let bazelBuildServiceConfig: BazelBuildServiceConfig?
-
     /// Enable generation of transitive Xcode targets.
     /// Defaults to `true`
     /// @note this is _generally_ required for Xcode projects to build with
@@ -195,18 +192,7 @@ public struct XCHammerProjectConfig: Codable {
 
         xcconfigOverrides = (try container.decodeIfPresent(
                 [String: String].self, forKey: .xcconfigOverrides)) ?? nil
-
-        bazelBuildServiceConfig = try container.decodeIfPresent(
-                BazelBuildServiceConfig.self, forKey: .bazelBuildServiceConfig)
     }
-}
-
-public struct BazelBuildServiceConfig: Codable {
-    public let bepPath: String?
-    public let indexStorePath: String?
-    public let indexingEnabled: Bool
-    public let indexingDataDir: String?
-    public let progressBarEnabled: Bool
 }
 
 public struct XCHammerConfig: Codable {
