@@ -171,7 +171,7 @@ def _xcbuildkit_config_value(bazel_build_service_config_json, key, default_value
     if not key in bazel_build_service_config_json:
         return default_value
     if not is_bool:
-        return bazel_build_service_config_json[key]
+        return bazel_build_service_config_json[key] if bazel_build_service_config_json[key] else default_value
 
     return "YES" if bazel_build_service_config_json[key] else "NO"
 
@@ -199,16 +199,29 @@ def _install_xcode_project_impl(ctx):
     if ctx.attr.bazel_build_service_config:
         # Same default values as xcbuildkit
         xcbuildkit_config_path = output_proj + "/xcbuildkit.config"
-        xcbuildkit_default_indexing_data_dir = "/tmp/xcbuildkit-data/indexing"
-        xcbuildkit_default_bep_path = "/tmp/bep.bep"
+        xcbuildkit_default_indexing_data_dir = "/tmp/xcbuildkit-data/{}/indexing".format(ctx.attr.name)
+        xcbuildkit_default_bep_path = "/tmp/{}.bep".format(ctx.attr.name)
 
         # Decode user provided config
         bazel_build_service_config_json = json.decode(ctx.attr.bazel_build_service_config)
 
-        # Create xcbuildkit config file and make sure `indexingDataDir` also exists
+        # Resolving each setting
+        indexing_enabled = _xcbuildkit_config_value(bazel_build_service_config_json, "indexingEnabled", "NO", True)
+        index_store_path = _xcbuildkit_config_value(bazel_build_service_config_json, "indexStorePath", "")
+        indexing_data_dir = _xcbuildkit_config_value(bazel_build_service_config_json, "indexingDataDir", xcbuildkit_default_indexing_data_dir)
+        progress_bar_enabled = _xcbuildkit_config_value(bazel_build_service_config_json, "progressBarEnabled", "NO", True)
+        bep_path = _xcbuildkit_config_value(bazel_build_service_config_json, "bepPath", xcbuildkit_default_bep_path)
+        # Hard coded since this is very XCHammer specific and there's no need to make it configurable.
+        # See `BazelExtensions/xcode_configuration_provider.bzl` => `SourceOutputFileMapInfo` usage.
+        output_file_map_suffix = "source_output_file_map.json"
+
+        if indexing_enabled and (not index_store_path or len(index_store_path) == 0):
+            fail("[ERROR] The 'index_store_path' attribute is mandatory. The $SRCROOT env variable is available to specify a path to the index store populated by Bazel in your repo, e.g., '$SRCROOT/path/to/my-index-store'.")
+
+        # Create xcbuildkit config file and make sure `indexingDataDir` exists
         command += [
             "touch " + xcbuildkit_config_path,
-            "mkdir -p " + bazel_build_service_config_json.get("indexingDataDir", xcbuildkit_default_indexing_data_dir),
+            "mkdir -p " + indexing_data_dir,
             """
 cat >{xcbuildkit_config_path} <<EOL
 BUILD_SERVICE_INDEXING_ENABLED={build_service_indexing_enabled}
@@ -221,12 +234,12 @@ BUILD_SERVICE_SOURCE_OUTPUT_FILE_MAP_SUFFIX={build_service_output_file_map_suffi
 EOL
             """.format(
                 xcbuildkit_config_path = xcbuildkit_config_path,
-                build_service_indexing_enabled = _xcbuildkit_config_value(bazel_build_service_config_json, "indexingEnabled", "NO", True),
-                build_service_index_store_path = _xcbuildkit_config_value(bazel_build_service_config_json, "indexStorePath", ""),
-                build_service_indexing_data_dir = _xcbuildkit_config_value(bazel_build_service_config_json, "indexingDataDir", xcbuildkit_default_indexing_data_dir),
-                build_service_progress_bar_enabled = _xcbuildkit_config_value(bazel_build_service_config_json, "progressBarEnabled", "NO", True),
-                build_service_bep_path = _xcbuildkit_config_value(bazel_build_service_config_json, "bepPath", xcbuildkit_default_bep_path),
-                build_service_output_file_map_suffix = "source_output_file_map.json",
+                build_service_indexing_enabled = indexing_enabled,
+                build_service_index_store_path = index_store_path,
+                build_service_indexing_data_dir = indexing_data_dir,
+                build_service_progress_bar_enabled = progress_bar_enabled,
+                build_service_bep_path = bep_path,
+                build_service_output_file_map_suffix = output_file_map_suffix,
             ),
         ]
 
