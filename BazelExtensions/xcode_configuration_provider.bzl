@@ -2,6 +2,18 @@ load(
     "@xchammer//:BazelExtensions/tulsi.bzl",
     "SwiftInfo",
 )
+load(
+    "@bazel_skylib//lib:paths.bzl",
+    "paths",
+)
+load(
+    "@bazel_tools//tools/cpp:toolchain_utils.bzl",
+    "find_cpp_toolchain",
+)
+load(
+    "@bazel_tools//tools/build_defs/cc:action_names.bzl",
+    "ACTION_NAMES",
+)
 
 XcodeProjectTargetInfo = provider(
     fields={
@@ -161,44 +173,134 @@ SourceOutputFileMapInfo = provider(
     },
 )
 
+def _objc_cmd_line(target, ctx, src, output_file_path):
+    """Returns flattened command line flags for ObjC sources
+    """
+    cc_toolchain = find_cpp_toolchain(ctx)
+    cc_feature_configuration = cc_common.configure_features(
+        ctx = ctx,
+        cc_toolchain = cc_toolchain,
+        requested_features = ctx.features,
+        unsupported_features = ctx.disabled_features,
+    )
+
+    copts = ctx.fragments.objc.copts + getattr(ctx.rule.attr, "copts", [])
+    non_arc_srcs = []
+
+    if hasattr(ctx.rule.attr, "non_arc_srcs"):
+        non_arc_srcs.extend([f for src in ctx.rule.attr.non_arc_srcs for f in src.files.to_list()])
+
+    cc_compile_variables = cc_common.create_compile_variables(
+        feature_configuration = cc_feature_configuration,
+        cc_toolchain = cc_toolchain,
+        user_compile_flags = copts,
+        source_file = src.path,
+        output_file = output_file_path,
+    )
+
+    base_args = cc_common.get_memory_inefficient_command_line(
+        feature_configuration = cc_feature_configuration,
+        action_name = ACTION_NAMES.objc_compile,
+        variables = cc_compile_variables,
+    )
+
+    cmd_line_args = []
+
+    # Arg pairs of the form '-flag value' to be skipped (breaks indexing if present)
+    arg_pairs_to_skip = ["-c"]
+    ignore_next = False
+
+    # Contains patterns in flag values that once detected should be skipped
+    #
+    # e.g.:
+    #
+    # DEBUG_PREFIX_MAP_PWD: gives an error "error: no such file or directory: 'DEBUG_PREFIX_MAP_PWD=.'" during indexing
+    #
+    arg_patterns_to_skip = ["DEBUG_PREFIX_MAP_PWD"]
+
+    # Collects all relevant compiler flags
+    for arg in base_args:
+        if arg in arg_pairs_to_skip:
+            ignore_next = True
+        elif ignore_next:
+            continue
+        else:
+            # Reset 'arg pairs to skip' flag
+            ignore_next = False
+            # Only proceed if it's a valid pattern
+            if len([p for p in arg_patterns_to_skip if arg.count(p) > 0]) == 0:
+                # Handles single quotes to prevent the following:
+                #
+                # `error: Macro name must be an identifier`
+                #
+                a = arg
+                if a.startswith("-D"):
+                    a = a.replace("'", "")
+                cmd_line_args.append(a)
+
+    # Handles ARC flag
+    cmd_line_args.append("-fobjc-arc" if not src in non_arc_srcs else "-fno-objc-arc")
+
+    return cmd_line_args
+
+def _is_objc(src):
+    return src.extension in ["m", "mm", "c", "cc", "cpp"]
+
 def _source_output_file_map(target, ctx):
     """
     Maps source code files to respective `.o` object file under bazel-out. Output group is used for indexing in xcbuildkit.
     """
     source_output_file_map = ctx.actions.declare_file("{}_source_output_file_map.json".format(target.label.name))
-
     mapping = {}
-    objc_srcs = []
-    objc_objects = []
+    srcs = []
+    objs = []
 
     # List of source files to be mapped to output files
     if hasattr(ctx.rule.attr, "srcs"):
-        objc_srcs = [
+        srcs.extend([
             f
             for source_file in ctx.rule.attr.srcs
             for f in source_file.files.to_list()
-            # Handling objc only for now
-            if f.path.endswith((".m", ".mm", ".c", ".cc", ".cpp"))
-            # TODO: handle swift
-        ]
+            # TODO: also collect Swift sources
+            if _is_objc(f)
+        ])
+    if hasattr(ctx.rule.attr, "non_arc_srcs"):
+        srcs.extend([
+            f
+            for source_file in ctx.rule.attr.non_arc_srcs
+            for f in source_file.files.to_list()
+            if _is_objc(f)
+        ])
 
     # Get compilation outputs if present
     if OutputGroupInfo in target:
+        # Objc, this is empty for Swift Sources
         if hasattr(target[OutputGroupInfo], "compilation_outputs"):
-            objc_objects.extend(target[OutputGroupInfo].compilation_outputs.to_list())
+            objs.extend([f.path for f in target[OutputGroupInfo].compilation_outputs.to_list()])
+        # TODO: Collect Swift outputs
 
     # Map source to output file
-    if len(objc_srcs):
-        if len(objc_srcs) != len(objc_objects):
+    if len(srcs):
+        if len(srcs) != len(objs):
             fail("[ERROR] Unexpected number of object files")
-        for src in objc_srcs:
+        for src in srcs:
+            # TODO: Handle Swift
+            if not _is_objc(src):
+                continue
             basename_without_ext = src.basename.replace(".%s" % src.extension, "")
-            obj = [o for o in objc_objects if "%s.o" % basename_without_ext == o.basename]
+            obj_extension = "o"
+            obj = [o for o in objs if "%s.%s" % (basename_without_ext, obj_extension) == paths.basename(o)]
             if len(obj) != 1:
                 fail("Failed to find single object file for source %s. Found: %s" % (src, obj))
+            obj_path = obj[0]
 
-            obj = obj[0]
-            mapping["/{}".format(src.path)] = obj.path
+            cmd_line = _objc_cmd_line(target, ctx, src, obj_path) if _is_objc(src) else ""
+            cmd_line = ctx.expand_location(" ".join(cmd_line)).split(" ")
+            mapping["/{}".format(src.path)] = {
+                "output_file": obj_path,
+                # TODO: Collect swiftc flags
+                "command_line_args": cmd_line,
+            }
 
     # Collect info from deps
     deps = getattr(ctx.rule.attr, "deps", [])
@@ -221,9 +323,10 @@ def _source_output_file_map(target, ctx):
             source_output_file_map = depset([source_output_file_map], transitive = transitive_jsons),
         ),
         SourceOutputFileMapInfo(
-            mapping = mapping
+            mapping = mapping,
         ),
     ]
+
 def _xcode_build_sources_aspect_impl(itarget, ctx):
     """ Install Xcode project dependencies into the source root.
 
@@ -270,11 +373,18 @@ def _xcode_build_sources_aspect_impl(itarget, ctx):
 # don't need to pre-compile them with Bazel
 pure_xcode_build_sources_aspect = aspect(
     implementation=_xcode_build_sources_aspect_impl, attr_aspects=["*"],
-    attrs = { "include_swift_outputs": attr.string(values=["false","true"], default="false") }
+    attrs = {
+        "include_swift_outputs": attr.string(values=["false","true"], default="false"),
+        "_cc_toolchain": attr.label(default = Label("@bazel_tools//tools/cpp:current_cc_toolchain")),
+    }
 )
 
 xcode_build_sources_aspect = aspect(
     implementation=_xcode_build_sources_aspect_impl, attr_aspects=["*"],
-    attrs = { "include_swift_outputs": attr.string(values=["false", "true"], default="true") }
+    attrs = {
+        "include_swift_outputs": attr.string(values=["false", "true"], default="true"),
+        "_cc_toolchain": attr.label(default = Label("@bazel_tools//tools/cpp:current_cc_toolchain")),
+    },
+    fragments = ["objc", "cpp"],
 )
 
