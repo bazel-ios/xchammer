@@ -242,6 +242,9 @@ def _objc_cmd_line(target, ctx, src, non_arc_srcs, output_file_path):
 def _is_objc(src):
     return src.extension in ["m", "mm", "c", "cc", "cpp"]
 
+def _is_swift(src):
+    return src.extension == "swift"
+
 def _source_output_file_map(target, ctx):
     """
     Maps source code files to respective `.o` object file under bazel-out. Output group is used for indexing in xcbuildkit.
@@ -257,8 +260,7 @@ def _source_output_file_map(target, ctx):
             f
             for source_file in ctx.rule.attr.srcs
             for f in source_file.files.to_list()
-            # TODO: also collect Swift sources
-            if _is_objc(f)
+            if _is_objc(f) or _is_swift(f)
         ])
     if hasattr(ctx.rule.attr, "non_arc_srcs"):
         srcs.extend([
@@ -273,7 +275,10 @@ def _source_output_file_map(target, ctx):
         # Objc, this is empty for Swift Sources
         if hasattr(target[OutputGroupInfo], "compilation_outputs"):
             objs.extend([f.path for f in target[OutputGroupInfo].compilation_outputs.to_list()])
-        # TODO: Collect Swift outputs
+        # Collect Swift outputs directly, couldn't find this in a provider
+        for a in target.actions:
+            if a.mnemonic == "SwiftCompile":
+                objs.extend([f.path for f in a.outputs.to_list() if f.extension == "o"])
 
     non_arc_srcs = []
     if hasattr(ctx.rule.attr, "non_arc_srcs"):
@@ -284,21 +289,29 @@ def _source_output_file_map(target, ctx):
         if len(srcs) != len(objs):
             fail("[ERROR] Unexpected number of object files")
         for src in srcs:
-            # TODO: Handle Swift
-            if not _is_objc(src):
-                continue
             basename_without_ext = src.basename.replace(".%s" % src.extension, "")
-            obj_extension = "o"
+            obj_extension = "swift.o" if _is_swift(src) else "o"
             obj = [o for o in objs if "%s.%s" % (basename_without_ext, obj_extension) == paths.basename(o)]
             if len(obj) != 1:
                 fail("Failed to find single object file for source %s. Found: %s" % (src, obj))
             obj_path = obj[0]
 
-            cmd_line = _objc_cmd_line(target, ctx, src, non_arc_srcs, obj_path) if _is_objc(src) else ""
-            cmd_line = ctx.expand_location(" ".join(cmd_line)).split(" ")
+            cmd_line = []
+            if _is_objc(src):
+                cmd_line = _objc_cmd_line(target, ctx, src, non_arc_srcs, obj_path)
+            elif _is_swift(src):
+                # TODO: call _swift_cmd_line here
+                cmd_line = []
+            # This check is to `expand_location` only if known patterns are present on the command line args.
+            # Without this check we hit the err below from `rules_swift`:
+            #
+            # ERROR: ... on cc_library rule @build_bazel_rules_swift//tools/worker:swift_runner: label '@build_bazel_rules_swift_index_import//:index_import' in $(location) expression is not a declared prerequisite of this rule
+            #
+            patterns_to_expand = ["$(location", "$(execpath"]
+            if len([(x,p) for x in cmd_line for p in patterns_to_expand if x.count(p) > 0]) > 0:
+                cmd_line = ctx.expand_location(" ".join(cmd_line)).split(" ")
             mapping["/{}".format(src.path)] = {
                 "output_file": obj_path,
-                # TODO: Collect swiftc flags
                 "command_line_args": cmd_line,
             }
 
