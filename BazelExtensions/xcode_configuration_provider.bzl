@@ -173,7 +173,7 @@ SourceOutputFileMapInfo = provider(
     },
 )
 
-def _objc_cmd_line(target, ctx, src, output_file_path):
+def _objc_cmd_line(target, ctx, src, non_arc_srcs, output_file_path):
     """Returns flattened command line flags for ObjC sources
     """
     cc_toolchain = find_cpp_toolchain(ctx)
@@ -185,10 +185,6 @@ def _objc_cmd_line(target, ctx, src, output_file_path):
     )
 
     copts = ctx.fragments.objc.copts + getattr(ctx.rule.attr, "copts", [])
-    non_arc_srcs = []
-
-    if hasattr(ctx.rule.attr, "non_arc_srcs"):
-        non_arc_srcs.extend([f for src in ctx.rule.attr.non_arc_srcs for f in src.files.to_list()])
 
     cc_compile_variables = cc_common.create_compile_variables(
         feature_configuration = cc_feature_configuration,
@@ -279,6 +275,10 @@ def _source_output_file_map(target, ctx):
             objs.extend([f.path for f in target[OutputGroupInfo].compilation_outputs.to_list()])
         # TODO: Collect Swift outputs
 
+    non_arc_srcs = []
+    if hasattr(ctx.rule.attr, "non_arc_srcs"):
+        non_arc_srcs.extend([f for src in ctx.rule.attr.non_arc_srcs for f in src.files.to_list()])
+
     # Map source to output file
     if len(srcs):
         if len(srcs) != len(objs):
@@ -294,7 +294,7 @@ def _source_output_file_map(target, ctx):
                 fail("Failed to find single object file for source %s. Found: %s" % (src, obj))
             obj_path = obj[0]
 
-            cmd_line = _objc_cmd_line(target, ctx, src, obj_path) if _is_objc(src) else ""
+            cmd_line = _objc_cmd_line(target, ctx, src, non_arc_srcs, obj_path) if _is_objc(src) else ""
             cmd_line = ctx.expand_location(" ".join(cmd_line)).split(" ")
             mapping["/{}".format(src.path)] = {
                 "output_file": obj_path,
