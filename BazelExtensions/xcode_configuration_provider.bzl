@@ -239,6 +239,28 @@ def _objc_cmd_line(target, ctx, src, non_arc_srcs, output_file_path):
 
     return cmd_line_args
 
+def _swift_cmd_line(target, src):
+    argv = []
+    # In theory a single SwiftCompile action should represent
+    # the compilation of `src`, so fails if more than one is found
+    for a in target.actions:
+        if a.argv and a.mnemonic == "SwiftCompile" and src.path in a.argv:
+            argv.append(a.argv)
+
+    if len(argv) != 1:
+        fail("[ERROR] Source file {} referenced in multiple SwiftCompile actions.".format(src.path))
+    argv = argv[0]
+
+    # Collect only the args that can be used in Xcode and passed to the
+    # indexing invocations
+    swiftc_args = []
+    for arg in argv:
+        if arg.endswith("worker") or arg == "swiftc" or arg.count("-Xwrapped-swift"):
+            continue
+        else:
+            swiftc_args.append(arg)
+    return swiftc_args
+
 def _is_objc(src):
     return src.extension in ["m", "mm", "c", "cc", "cpp"]
 
@@ -300,8 +322,7 @@ def _source_output_file_map(target, ctx):
             if _is_objc(src):
                 cmd_line = _objc_cmd_line(target, ctx, src, non_arc_srcs, obj_path)
             elif _is_swift(src):
-                # TODO: call _swift_cmd_line here
-                cmd_line = []
+                cmd_line = _swift_cmd_line(target, src)
             # This check is to `expand_location` only if known patterns are present on the command line args.
             # Without this check we hit the err below from `rules_swift`:
             #
