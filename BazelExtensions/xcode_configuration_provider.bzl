@@ -247,7 +247,9 @@ def _swift_cmd_line(target, src):
         if a.argv and a.mnemonic == "SwiftCompile" and src.path in a.argv:
             argv.append(a.argv)
 
-    if len(argv) != 1:
+    # Only fail if there was at least one SwiftCompile action
+    # In this case expects only a single argv collected
+    if len([a for a in target.actions if a.mnemonic == "SwiftCompile"]) > 0 and len(argv) != 1:
         fail("[ERROR] Source file {} referenced in multiple SwiftCompile actions.".format(src.path))
     argv = argv[0]
 
