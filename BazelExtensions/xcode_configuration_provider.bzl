@@ -269,14 +269,23 @@ def _is_objc(src):
 def _is_swift(src):
     return src.extension == "swift"
 
+_SOURCE_OUTPUT_FILE_MAP_ASPECT_RULES_TO_COLLECT = [
+    "apple_dynamic_framework_import",
+    "apple_framework_packaging",
+    "cc_library",
+    "ios_application",
+    "objc_library",
+    "swift_library"
+]
+
 def _source_output_file_map(target, ctx):
     """
     Maps source code files to respective `.o` object file under bazel-out. Output group is used for indexing in xcbuildkit.
     """
-    source_output_file_map = ctx.actions.declare_file("{}_source_output_file_map.json".format(target.label.name))
     mapping = {}
     srcs = []
     objs = []
+    outputs = []
 
     # List of source files to be mapped to output files
     if hasattr(ctx.rule.attr, "srcs"):
@@ -313,6 +322,9 @@ def _source_output_file_map(target, ctx):
         if len(srcs) != len(objs):
             fail("[ERROR] Unexpected number of object files")
         for src in srcs:
+            # Skip sources that are not relevant for the Xcode experience
+            if src.path.count("bazel-out") > 0 or src.path.startswith("external/"):
+                continue
             basename_without_ext = src.basename.replace(".%s" % src.extension, "")
             obj_extension = "swift.o" if _is_swift(src) else "o"
             obj = [o for o in objs if "%s.%s" % (basename_without_ext, obj_extension) == paths.basename(o)]
@@ -351,12 +363,15 @@ def _source_output_file_map(target, ctx):
             if hasattr(dep[OutputGroupInfo], "source_output_file_map"):
                 transitive_jsons.append(dep[OutputGroupInfo].source_output_file_map)
 
-    # Writes JSON
-    ctx.actions.write(source_output_file_map, json.encode(mapping))
+    # Conditionally writes JSON file if relevant outputs were collected
+    if not len(mapping.keys()) == 0 and ctx.rule.kind in _SOURCE_OUTPUT_FILE_MAP_ASPECT_RULES_TO_COLLECT:
+        source_output_file_map = ctx.actions.declare_file("{}_source_output_file_map.json".format(target.label.name))
+        ctx.actions.write(source_output_file_map, json.encode(mapping))
+        outputs.append(source_output_file_map)
 
     return [
         OutputGroupInfo(
-            source_output_file_map = depset([source_output_file_map], transitive = transitive_jsons),
+            source_output_file_map = depset(outputs, transitive = transitive_jsons),
         ),
         SourceOutputFileMapInfo(
             mapping = mapping,
