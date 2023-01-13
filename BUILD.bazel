@@ -15,6 +15,10 @@ load(
     "@build_bazel_rules_apple//apple:versioning.bzl",
     "apple_bundle_version",
 )
+load(
+    "//:BazelExtensions/features.bzl",
+    "feature_names",
+)
 
 # FIX-ME: Bring this back after resolving issues with loading from rules_ios
 # load(
@@ -276,4 +280,11 @@ genrule(
     cd $(OUTS)
     {gen_workspace_cmd}
     """.format(gen_workspace_cmd = gen_workspace_cmd),
+)
+
+config_setting(
+    name = "collect_indexing_info",
+    values = {
+        "features": feature_names.collect_indexing_info,
+    },
 )
