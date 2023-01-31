@@ -14,6 +14,10 @@ load(
     "@bazel_tools//tools/build_defs/cc:action_names.bzl",
     "ACTION_NAMES",
 )
+load(
+    "//:BazelExtensions/features.bzl",
+    "feature_names",
+)
 
 XcodeProjectTargetInfo = provider(
     fields={
@@ -127,7 +131,9 @@ def _extract_generated_sources(target, ctx):
         files.append(depset(target[CcInfo].compilation_context.direct_public_headers))
     if ObjcInfo in target:
         objc = target[ObjcInfo]
-        files.append(depset(objc.direct_headers))
+        # Using `getattr` for backwards compatibility since `direct_headers`
+        # was removed from `ObjcInfo` in Bazel 6.0.0
+        files.append(depset(getattr(objc, "direct_headers", [])))
     trans_files = depset(transitive = files)
     return [f for f in trans_files.to_list() if not f.is_source and not f.path.endswith("-Swift.h")]
 
@@ -373,6 +379,7 @@ def _xcode_build_sources_aspect_impl(itarget, ctx):
     # Note: we need to collect the transitive files seperately from our own
     infos = []
     transitive = []
+    providers = []
     infos.extend(_extract_generated_sources(itarget, ctx))
     if XcodeBuildSourceInfo in itarget:
        transitive.append(itarget[XcodeBuildSourceInfo].values)
@@ -393,7 +400,8 @@ def _xcode_build_sources_aspect_impl(itarget, ctx):
                 transitive.extend(target[XcodeBuildSourceInfo].transitive)
 
     compacted_transitive_files = depset(transitive=transitive).to_list()
-    return [
+
+    providers.extend([
         OutputGroupInfo(
             xcode_project_deps = _install_action(
                 ctx,
@@ -402,7 +410,12 @@ def _xcode_build_sources_aspect_impl(itarget, ctx):
             ),
         ),
         XcodeBuildSourceInfo(values = depset(infos), transitive=[depset(compacted_transitive_files)]),
-    ] + _source_output_file_map(itarget, ctx)
+    ])
+
+    if feature_names.collect_indexing_info in ctx.features:
+        providers.extend(_source_output_file_map(itarget, ctx))
+
+    return providers
 
 
 # Note, that for "pure" Xcode builds we build swiftmodules with Xcode, so we
