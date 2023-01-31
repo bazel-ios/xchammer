@@ -1475,6 +1475,7 @@ public class XcodeTarget: Hashable, Equatable {
             if settings.testTargetName != nil {
                 settings.codeSigningAllowed = First("YES")
             }
+            settings.infoPlistFile = xcodeBuildableTargetSettings.infoPlistFile
         } else {
             sources = self.xcCompileableSources
             xcodeBuildableTargetSettings = self.settings
@@ -1500,7 +1501,12 @@ public class XcodeTarget: Hashable, Equatable {
             First("${PYTHONPATH}:$(PROJECT_FILE_PATH)/XCHammerAssets")
         settings <>= getDeploymentTargetSettings()
 
-        let bazelScript = ProjectSpec.BuildScript(path: nil, script: getScriptContent(), name: "Bazel build")
+        let bazelScript = ProjectSpec.BuildScript(
+            path: nil,
+            outputFiles: [settings.infoPlistFile?.v ?? ""],
+            script: getScriptContent(),
+            name: "Bazel build"
+        )
 
         return ProjectSpec.Target(
             name: xcTargetName,

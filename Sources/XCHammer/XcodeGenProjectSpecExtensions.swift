@@ -32,9 +32,9 @@ extension ProjectSpec.TargetSource : Hashable {
 }
 
 extension ProjectSpec.BuildScript {
-    init(path: String?, script: String, name: String? = nil) {
+    init(path: String?, outputFiles: [String] = [], script: String, name: String? = nil) {
         self.init(script: .script(script), name: name, inputFiles: [],
-                outputFiles: [], shell: nil, runOnlyWhenInstalling: false)
+                outputFiles: outputFiles, shell: nil, runOnlyWhenInstalling: false)
     }
 }
 
