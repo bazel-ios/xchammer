@@ -279,7 +279,7 @@ def _source_output_file_map(target, ctx):
     """
     Maps source code files to respective `.o` object file under bazel-out. Output group is used for indexing in xcbuildkit.
     """
-    source_output_file_map = ctx.actions.declare_file("{}_source_output_file_map.json".format(target.label.name))
+    source_output_file_map = []
     mapping = {}
     srcs = []
     objs = []
@@ -358,11 +358,14 @@ def _source_output_file_map(target, ctx):
                 transitive_jsons.append(dep[OutputGroupInfo].source_output_file_map)
 
     # Writes JSON
-    ctx.actions.write(source_output_file_map, json.encode(mapping))
+    for (src, json_info) in mapping.items():
+        src_json = ctx.actions.declare_file("{}_source_output_file_map.json".format(src.replace("/", "_").replace(".", "_")))
+        source_output_file_map.append(src_json)
+        ctx.actions.write(src_json, json.encode(json_info))
 
     return [
         OutputGroupInfo(
-            source_output_file_map = depset([source_output_file_map], transitive = transitive_jsons),
+            source_output_file_map = depset(source_output_file_map, transitive = transitive_jsons),
         ),
         SourceOutputFileMapInfo(
             mapping = mapping,
